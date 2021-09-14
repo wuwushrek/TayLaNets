@@ -1,1 +1,1 @@
-# TayLaNets
+# Taylor Lagrange Deep Neural Networks
