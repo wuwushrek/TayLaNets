@@ -1,0 +1,4 @@
+jax>=0.2.16
+jaxlib>=0.1.68
+dm-haiku @ git+git://github.com/deepmind/dm-haiku
+optax @ git+git://github.com/deepmind/optax.git
