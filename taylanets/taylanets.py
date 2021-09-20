@@ -530,7 +530,7 @@ def build_taylanets(rng_key, nstate, ncontrol, time_step, baseline_params, nn_pa
 		ineqTerms = midpoint_constraints(midpoint_value, coloc_points[0], next_x)
 
 		# Update lagrangian term for inequality constraints
-		n_lagr_ineq_k = jnp.maximum(lagr_ineq_k + 2 * pen_ineq_k * ineqCterms, 0)
+		n_lagr_ineq_k = jnp.maximum(lagr_ineq_k + 2 * pen_ineq_k * ineqTerms, 0)
 		return pen_ineq_k * beta_ineq, n_lagr_ineq_k
 
 	return (params_init, m_pen_ineq_k, m_lagr_ineq_k) , pred_xnext, loss_fun, update, update_lagrange
