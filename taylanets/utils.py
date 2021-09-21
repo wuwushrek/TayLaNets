@@ -338,7 +338,7 @@ def generate_rel_error(util_fun, params, xtrue):
 
 	# A list to save the time evolution of the error per each initialization 
 	res_value = [ list() for i in range(1, xtrue.shape[1])]
-	opt_geom_mean = -1
+	opt_geom_mean = 2
 	f_traj_evol = None
 
 	for seed, params_val in sorted(params.items()):
@@ -353,11 +353,11 @@ def generate_rel_error(util_fun, params, xtrue):
 			curr_relative_error = np.linalg.norm(init_value-xtrue[:,i,:], axis=1)/(np.linalg.norm(xtrue[:,i,:], axis=1)+ np.linalg.norm(init_value, axis=1))
 			l_res_value.extend(curr_relative_error)
 		val_geom_mean = np.mean(curr_relative_error)
-		if val_geom_mean > opt_geom_mean:
+		if val_geom_mean < opt_geom_mean:
 			opt_geom_mean = val_geom_mean
 			f_traj_evol = trajectory_evolution
-		tqdm.write('Seed [{}] : End point geom mean : {}'.format(seed, val_geom_mean))
-
+		tqdm.write('Seed [{}]\t\t\t:\tEnd point geom mean : {}'.format(seed, val_geom_mean))
+	# print(len(f_traj_evol), f_traj_evol[0].shape)
 	# Make to an array the relative error as a function of initialization 
 	res_value = np.array(res_value)
 	res_value = expanding_gmean_log(res_value)

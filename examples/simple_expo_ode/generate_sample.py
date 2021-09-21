@@ -19,7 +19,7 @@ import numpy as np
 
 # Dynamics static parameters
 # \dot{x} =  A x
-A = np.array([ [0.5,3], [-3,1.0] ] )
+A = np.array([ [0.2,3], [-3,0.4] ] )
 eigval, eigvec = np.linalg.eig(A)
 assert eigval[0] != eigval[1], 'Only consider different eigenvalue: {}'.format(eigval)
 print(eigval)

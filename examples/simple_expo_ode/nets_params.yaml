@@ -13,9 +13,9 @@ model_name: expo_dyn
 # Optimizer and its parameters
 optimizer:
   name: adam
-  learning_rate_init: 0.002   # The learning rate at the first iteration of the gradient descent
-  learning_rate_end: 0.001    # The learning rate at the last iteration of the gradient descent
-  weight_decay: 0.0001        # Weight decay coefficient
+  learning_rate_init: 0.01    # The learning rate at the first iteration of the gradient descent
+  learning_rate_end: 0.0001    # The learning rate at the last iteration of the gradient descent
+  weight_decay: 0.001        # Weight decay coefficient
   grad_clip: 0.01             # Gradient clip coefficient
 
 
@@ -29,13 +29,13 @@ pen_constr:
   batch_size_coloc: 16              # Number of data taken in the colocation set (if given)
 
 # The seed for randomness and reproducibility
-seed: [101, 201, 501]
+seed: [101]
 
 # Batch size 
 batch_size: 64
 
 # Total number of iterations
-num_gradient_iterations: 10000
+num_gradient_iterations: 20000
 
 # Frequency at which to compute loss function on the training and testing
 freq_accuracy: [1.0, 100, 100]
@@ -90,7 +90,7 @@ baseline_params:
   # Otherwise it can't be ignored if the method name is rk4, taylor, odeint, or euler.
   # No need to specify output or input_index --> They are automatically infered from the number of states and control inputs of the system
   midpoint: # Or remainder
-    output_sizes: [16, 16]            # Specify the size of the hidden layers only
+    output_sizes: [64, 64]            # Specify the size of the hidden layers only
     activation: tanh                  # Activation function
     b_init:
       initializer: Constant           # Initializer of the biais value

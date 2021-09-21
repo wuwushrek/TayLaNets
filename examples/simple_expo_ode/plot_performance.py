@@ -60,28 +60,36 @@ def load_files(data_to_show, integ_scheme=False):
 		print(m_llog.nn_hyperparams)
 		print(m_llog.sampleLog)
 
+		# We want to compare tayla to a taylor expansion of the same order
 		if integ_scheme:
-			baseline_params['name'] = 'taylor'
+			baseline_params['name'] = 'taylor' # Change the method to be the
+			# Get the intrinsic function to predict the next state and compute the loss function
 			_ , pred_xnext, loss_fun, _, _ =\
 				build_taylanets(m_rng, hyperParams.nstate, hyperParams.ncontrol, hyperParams.time_step, baseline_params, nn_params, None,
 						hyperParams.model_name, jax.vmap(system_ode), hyperParams.pen_constr, hyperParams.batch_size,
 						None, hyperParams.normalize)
+			# Jit the functions for efficiency purpose
 			m_util_integ.append( ( (jax.jit(pred_xnext), jax.jit(loss_fun)), 'Taylor {}'.format(baseline_params['order']) ) )			
 
+	# We also want to compare with rk4 and odeint
 	if integ_scheme:
+		# Enforce RK4 baseline
 		baseline_params['name'] = 'rk4'
 		_ , pred_xnext_rk4, loss_fun_rk4, _, _ =\
 			build_taylanets(m_rng, hyperParams.nstate, hyperParams.ncontrol, hyperParams.time_step, baseline_params, nn_params, None,
 					hyperParams.model_name, jax.vmap(system_ode), hyperParams.pen_constr, hyperParams.batch_size,
 					None, hyperParams.normalize)
+		# Jit the functions for efficiency purpose
 		m_util_integ.append(((jax.jit(pred_xnext_rk4), jax.jit(loss_fun_rk4)), 'RK4'))
 
-		baseline_params['name'] = 'odeint'
-		_ , pred_xnext_ode, loss_fun_ode, _, _ = \
-			build_taylanets(m_rng, hyperParams.nstate, hyperParams.ncontrol, hyperParams.time_step, baseline_params, nn_params, None,
-					hyperParams.model_name, jax.vmap(system_ode), hyperParams.pen_constr, hyperParams.batch_size,
-					None, hyperParams.normalize)
-		m_util_integ.append( ( (jax.jit(pred_xnext_ode), jax.jit(loss_fun_ode)), 'ODEint') )
+		# # Enforce odeint (RK4 with adpative time step) baseline
+		# baseline_params['name'] = 'odeint'
+		# _ , pred_xnext_ode, loss_fun_ode, _, _ = \
+		# 	build_taylanets(m_rng, hyperParams.nstate, hyperParams.ncontrol, hyperParams.time_step, baseline_params, nn_params, None,
+		# 			hyperParams.model_name, jax.vmap(system_ode), hyperParams.pen_constr, hyperParams.batch_size,
+		# 			None, hyperParams.normalize)
+		# # Jit the functions for efficiency purpose
+		# m_util_integ.append( ( (jax.jit(pred_xnext_ode), jax.jit(loss_fun_ode)), 'ODEint') )
 
 	return m_learning_log, m_util_fun, m_util_integ
 
@@ -99,16 +107,18 @@ if __name__ == "__main__":
 	parser.add_argument('--window', '-w', type=int, default=1)
 	parser.add_argument('--seed', type=int, default=701)
 	parser.add_argument('--evaluate_on_test', action='store_true')
-	parser.add_argument('--num_traj', type=int, default=100)
+	parser.add_argument('--num_traj', type=int, default=50)
 	parser.add_argument('--num_point_in_traj', type=int, default=100)
 	parser.add_argument('--show_constraints', action='store_true')
 	parser.add_argument('--noise', type=float, default=0.05)
-	parser.add_argument('--indx_traj_test', type=int, default=0)
+	parser.add_argument('--indx_traj_test', type=int, default=-1)
 	parser.add_argument('--indx_traj', type=int, default=0)
+	parser.add_argument('--compare_odescheme', action='store_true')
+	parser.add_argument('--extension', type=str, default='svg')
 	args = parser.parse_args()
 
 	# Load the data
-	m_logs, m_pred_loss, m_pred_loss_base = load_files(args.logdirs, integ_scheme=True)
+	m_logs, m_pred_loss, m_pred_loss_base = load_files(args.logdirs, integ_scheme=args.compare_odescheme)
 	actual_dt = m_logs[0].sampleLog.time_step # Assume the step size is the same for every file
 	n_state = m_logs[0].sampleLog.nstate
 
@@ -144,9 +154,9 @@ if __name__ == "__main__":
 			gradient_step = np.array([i for i in range(temp_nnparams.num_gradient_iterations)])[update_freq]
 			# print(axs)
 			main_axs = axs.ravel()[0] if args.show_constraints else axs
-			main_axs.plot(gradient_step[:tl_tr[0].shape[0]], tl_tr[0], color=color, linewidth=linewidth, label=legend)
+			main_axs.plot(gradient_step[:tl_tr[0].shape[0]], tl_tr[0], color=color, linewidth=linewidth)
 			main_axs.fill_between(gradient_step[:tl_tr[0].shape[0]], tl_tr[1], tl_tr[2], linewidth=linewidth, facecolor=color, alpha=alpha_std)
-			main_axs.plot(gradient_step[:tl_te[0].shape[0]], tl_te[0], color='dark'+color, linewidth=linewidth, label=legend, **linestyle_test)
+			main_axs.plot(gradient_step[:tl_te[0].shape[0]], tl_te[0], color=color, linewidth=linewidth, label=legend, **linestyle_test)
 			main_axs.fill_between(gradient_step[:tl_te[0].shape[0]], tl_te[1], tl_te[2], linewidth=linewidth, facecolor=color, alpha=alpha_std_test)
 			main_axs.set_yscale('log')
 			main_axs.set_xlabel(r'$\mathrm{Time \ steps}$')
@@ -194,7 +204,7 @@ if __name__ == "__main__":
 	for n_train, (m_fig, axs) in zip(log_data.sampleLog.num_traj_data, m_figs_loss):
 		tikzplotlib.clean_figure(fig=m_fig)
 		tikzplotlib.save(dir_save+'/loss_{}.tex'.format(n_train), figure=m_fig)
-		m_fig.savefig(dir_save+'/loss_{}.png'.format(n_train), dpi=300)
+		m_fig.savefig(dir_save+'/loss_{}.{}'.format(n_train, args.extension), dpi=300)
 
 	#########################################################################################################################################################################
 
@@ -222,7 +232,7 @@ if __name__ == "__main__":
 	testTraj, _ = exact_solution(x_eval_init, actual_dt, args.num_point_in_traj, 1, merge_traj=False)
 	time_index = [ actual_dt * i for i in range(1, args.num_point_in_traj)]
 
-	# Generate the plots showing the relative error
+	# Generate the plots showing the relative error for each trajectories
 	list_axes_rel_err =  list()
 	for i in range(len(log_data.sampleLog.num_traj_data)):
 		fig_rel_err =  plt.figure()
@@ -232,6 +242,7 @@ if __name__ == "__main__":
 		ax_rel_err.grid()
 		list_axes_rel_err.append((ax_rel_err,fig_rel_err))
 
+	# Generate the figure showing the geometric mean for each set of trajectories
 	figure_gm_rerr = plt.figure()
 	ax_gm_rerr = plt.gca()
 	ax_gm_rerr.set_xlabel(r'$\mathrm{Number \ of \ training \ trajectories }$')
@@ -239,50 +250,145 @@ if __name__ == "__main__":
 	ax_gm_rerr.set_yscale('log')
 	ax_gm_rerr.grid()
 
-	# Generate the data with the accuracy of the learned model
-	mStateEvol = dict()
+	# Generate the data with the accuracy of the learned model for the methods given in logdirs
+	mStateEvol = dict() # Save the state evolution on the testing dataset for each method and user-specified trajectory index
 	for pred_loss_fun, log_data, legend, color in tqdm(zip(m_pred_loss, m_logs, args.legends, args.colors), total=len(m_pred_loss)):
-		training_list = list()
+		# Store the number of trajectories in the training set
+		training_list = list() 
+
+		# Store the geometric mean, its minimum, and maximum
 		list_gm_err_mean, list_gm_err_min, list_gm_err_max  = list(), list(), list()
+
+		# Store the learned params for each seed used in the training process
 		curr_learned_params = {i : val for i, val in log_data.learned_weights.items() if len(val) > 0}
+
+		# A counter to specify when reaching the user-specified index trajectory
 		counterVal = 0
+
+		# Iterate over the different set of trajectores
 		for traj_id, n_train, (ax_rel_err,_) in tqdm(zip(curr_learned_params, log_data.sampleLog.num_traj_data,list_axes_rel_err), total=len(list_axes_rel_err), leave=False):
+			# Compute the running geometric mean for the learned weights of the current set of trajectories (Evaluation on testTraj)
 			rel_err, gm_rel_err, trajPred = generate_rel_error(pred_loss_fun, curr_learned_params[traj_id], testTraj)
+
+			# Check if this is the trajectory we wich to plot the state evolution
 			if counterVal == args.indx_traj:
 				mStateEvol[legend] = trajPred
+
+			# Save the geometric mean info
 			list_gm_err_mean.append(float(gm_rel_err[0]))
 			list_gm_err_min.append(float(gm_rel_err[1]))
 			list_gm_err_max.append(float(gm_rel_err[2]))
+
+			# Update the x axis of the geometric mean versy number of trajectory plot
 			training_list.append(n_train)
+
+			# Plot the running geometric mean as a function of time
 			ax_rel_err.plot(time_index, rel_err[0], color=color, linewidth=linewidth, label=legend) # label=r'$N_{\mathrm{traj}} = '+ str(n_train) + '$'
 			ax_rel_err.fill_between(time_index, rel_err[1], rel_err[2], linewidth=linewidth, facecolor=color, alpha=alpha_std)
 			ax_rel_err.set_ylabel(r'$\mathrm{Relative \ error}$ ($N_{\mathrm{train}}='+ str(n_train)+'$)')
 			ax_rel_err.legend(loc='best')
-			tqdm.write('[N_train = {}, Legend = {}]\t : Geometric mean [Mean | Mean-Std | Mean+Std] -> {:.4f} | {:.4f} | {:.4f}'.format(n_train, legend, float(gm_rel_err[0]), float(gm_rel_err[1]), float(gm_rel_err[2])))
+
+			# Log some value for the user
+			tqdm.write('[N_train = {}, Legend = {}] : Geometric mean [Mean | Mean-Std | Mean+Std] -> {:.2e} | {:.2e} | {:.2e}'.format(n_train, legend, float(gm_rel_err[0]), float(gm_rel_err[1]), float(gm_rel_err[2])))
+		
+		# Plot the geometric mean as a function of the number of trajectories
 		ax_gm_rerr.plot(training_list, list_gm_err_mean, color=color, linewidth=linewidth, marker=markerstyle, markersize=markersize, label=legend)
 		ax_gm_rerr.fill_between(training_list, list_gm_err_min, list_gm_err_max, linewidth=linewidth, facecolor=color, alpha=alpha_std)
-	ax_gm_rerr.legend(loc='best')
+	
 
-	# Iterate over the fixed and adaptive integration to check the performance of the ode integration
+	# Iterate over the fixed and adaptive integration scheme to check the performance of classical ode integration
 	for (pred_loss_fun, legend), color in tqdm(zip(m_pred_loss_base, args.extra_colors), total=len(m_pred_loss_base)):
+		# Store the number of trajectories in the training set
 		training_list = list()
+		# Store the geometric mean, its minimum, and maximum
 		list_gm_err_mean, list_gm_err_min, list_gm_err_max  = list(), list(), list()
+		# Compute the relative error
 		rel_err, gm_rel_err, trajPred = generate_rel_error(pred_loss_fun, {-1 : {}}, testTraj)
+		tqdm.write('[Legend = {}] : Geometric mean [Mean | Mean-Std | Mean+Std] -> {:.2e} | {:.2e} | {:.2e}'.format(legend, float(gm_rel_err[0]), float(gm_rel_err[1]), float(gm_rel_err[2])))
+		
+		# Store this legend for comparing trajectories
 		mStateEvol[legend] = trajPred
+
+		# Just plot the data obtained since its invariant with the number of trajectories used
 		for n_train, (ax_rel_err,_) in tqdm(zip(m_logs[0].sampleLog.num_traj_data,list_axes_rel_err), total=len(list_axes_rel_err), leave=False):
 			training_list.append(n_train)
 			list_gm_err_mean.append(float(gm_rel_err[0]))
 			list_gm_err_min.append(float(gm_rel_err[1]))
 			list_gm_err_max.append(float(gm_rel_err[2]))
-			ax_rel_err.plot(time_index, rel_err[0], color=color, linewidth=linewidth, label=legend) # label=r'$N_{\mathrm{traj}} = '+ str(n_train) + '$'
+			ax_rel_err.plot(time_index, rel_err[0], color=color, linewidth=linewidth, label=legend, linestyle='dashed') # label=r'$N_{\mathrm{traj}} = '+ str(n_train) + '$'
 			ax_rel_err.fill_between(time_index, rel_err[1], rel_err[2], linewidth=linewidth, facecolor=color, alpha=alpha_std)
 			ax_rel_err.set_ylabel(r'$\mathrm{Relative \ error}$ ($N_{\mathrm{train}}='+ str(n_train)+'$)')
 			ax_rel_err.legend(loc='best')
-			tqdm.write('[N_train = {}, Legend = {}]\t : Geometric mean [Mean | Mean-Std | Mean+Std] -> {:.2e} | {:.2e} | {:.2e}'.format(n_train, legend, float(gm_rel_err[0]), float(gm_rel_err[1]), float(gm_rel_err[2])))
+		
+		# Plot the geometric mean as a function of the number of trajectories
 		ax_gm_rerr.plot(training_list, list_gm_err_mean, color=color, linewidth=linewidth, marker=markerstyle, markersize=markersize, label=legend)
 		ax_gm_rerr.fill_between(training_list, list_gm_err_min, list_gm_err_max, linewidth=linewidth, facecolor=color, alpha=alpha_std)
+
 	ax_gm_rerr.legend(loc='best')
 
+	# Plot the resulting file and save it
+	import tikzplotlib
+	from pathlib import Path
+	for n_train, (ax_rel_err, m_fig) in zip(m_logs[0].sampleLog.num_traj_data,list_axes_rel_err):
+		tikzplotlib.clean_figure(fig=m_fig)
+		tikzplotlib.save(dir_save+'/relerr_{}.tex'.format(n_train), figure=m_fig)
+		m_fig.savefig(dir_save+'/relerr_{}.{}'.format(n_train, args.extension), dpi=300)
+	try:
+		tikzplotlib.clean_figure(fig=figure_gm_rerr)
+	except Exception:
+		pass
+	tikzplotlib.save(dir_save+'/geomrelerr.tex', figure=figure_gm_rerr)
+	figure_gm_rerr.savefig(dir_save+'/geomrelerr.png', dpi=300)
+
+
+	# Plot the state evolution
+	state_name = [r'$x_0$', r'$x_1$']	
+	time_index = [ actual_dt * i for i in range(args.num_point_in_traj)]
+
+	# Set of trajectories to  plot
+	ind_to_plot = [args.indx_traj_test] if args.indx_traj_test >=0 else [ i for i in range(args.num_traj)]
+	print(len(testTraj), testTraj[0].shape)
+
+	# Plot the time evolution of the state
+	for i in range(len(state_name)):
+		plt.figure()
+		first_iter = True
+		for indx in ind_to_plot:
+			plt.plot(time_index, testTraj[indx][:,i], color='magenta', linewidth=linewidth, linestyle='dashed', label='True state' if first_iter else None)
+			for legend, color in zip(args.legends, args.colors):
+				plt.plot(time_index, np.array(mStateEvol[legend])[indx,:,i], color=color, linewidth=linewidth, label=legend if first_iter else None)
+			for (pred_loss_fun, legend), color in zip(m_pred_loss_base, args.extra_colors):
+				plt.plot(time_index, np.array(mStateEvol[legend])[indx,:,i], color=color, linewidth=linewidth, linestyle='dashed', label=legend if first_iter else None)
+			if first_iter:
+				first_iter = False
+		# for legend, color in zip(args.legends, args.colors):
+		# 	plt.plot(time_index, np.array(mStateEvol[legend][m_seed])[:,i], color=color, linewidth=linewidth, label=legend)
+		plt.xlabel('Time (s)')
+		plt.ylabel(state_name[i])
+		plt.legend(loc='best')
+		plt.grid(True)
+		tikzplotlib.clean_figure()
+		tikzplotlib.save(dir_save+'/state_{}.tex'.format(i))
+		plt.savefig(dir_save+'/state_{}.png'.format(i), dpi=300, transparent=True)
+
+	# Make a 2D plot to see the trajectory
+	plt.figure()
+	first_iter = True
+	for indx in ind_to_plot:
+		plt.plot(testTraj[indx][:,0], testTraj[indx][:,1], color='magenta', linewidth=linewidth, linestyle='dashed', label='True state' if first_iter else None)
+		for legend, color in zip(args.legends, args.colors):
+			plt.plot(np.array(mStateEvol[legend])[indx,:,0], np.array(mStateEvol[legend])[indx,:,1], color=color, linewidth=linewidth, label=legend if first_iter else None)
+		for (pred_loss_fun, legend), color in zip(m_pred_loss_base, args.extra_colors):
+			plt.plot(np.array(mStateEvol[legend])[indx,:,0], np.array(mStateEvol[legend])[indx,:,1], color=color, linewidth=linewidth, linestyle='dashed', label=legend if first_iter else None)
+		if first_iter:
+			first_iter = False
+	plt.xlabel(state_name[0])
+	plt.ylabel(state_name[1])
+	plt.legend(loc='best')
+	plt.grid(True)
+	tikzplotlib.clean_figure()
+	tikzplotlib.save(dir_save+'/statexy.tex'.format(i))
+	plt.savefig(dir_save+'/statexy.png'.format(i), dpi=300, transparent=True)
 
 	# Show all the plots
 	plt.show()

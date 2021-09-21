@@ -137,9 +137,12 @@ def train(sampleLog, hyperParams, seeds_list, out_file=None, known_dynamics=None
 		# Dictionary to save the loss and the optimal params per radom seed 
 		dict_loss_per_seed = {seed_val : {} for seed_val in m_init_params_seed}
 		dict_params_per_seed = {seed_val : None for seed_val in m_init_params_seed}
+		tqdm.write('[New Training data set of length : {}]\n'.format(n_train))
 
 		# Iterate for the current trajectory through the number of seed
 		for seed_val in tqdm(m_init_params_seed, total=len(dict_params_per_seed), leave=False):
+
+			tqdm.write('New seed eval [Traj = {}] |  [Seed = {}]\n'.format(n_train, seed_val))
 
 			# Obtain the neural network, the update, loss function and paramters of the neural network structure
 			rng_gen, (params, m_pen_ineq_k, m_lagr_ineq_k), (pred_xnext, loss_fun, update, update_lagrange) = \
