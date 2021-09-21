@@ -9,11 +9,11 @@ import numpy as np
 
 import optax
 
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
-from taylanets import build_taylanets
-from utils import SampleLog, HyperParamsNN, LearningLog, build_params
-from utils import _INITIALIZER_MAPPING, _ACTIVATION_FN, _OPTIMIZER_FN
+from taylanets.taylanets import build_taylanets
+from taylanets.utils import SampleLog, HyperParamsNN, LearningLog, build_params
+from taylanets.utils import _INITIALIZER_MAPPING, _ACTIVATION_FN, _OPTIMIZER_FN
 
 
 def train(sampleLog, hyperParams, seeds_list, out_file=None, known_dynamics=None):
@@ -30,13 +30,14 @@ def train(sampleLog, hyperParams, seeds_list, out_file=None, known_dynamics=None
 	# Copy the sampleLog without the data 
 	reducedSampleLog = SampleLog(None, None, None, None, sampleLog.xu_train_lb, sampleLog.xu_train_ub, 
 									None, None, None, None, sampleLog.xu_test_lb, sampleLog.xu_test_ub, 
-									None, sampleLog.num_traj_data, sampleLog.trajectory_length, 
+									(None,None,None), sampleLog.num_traj_data, sampleLog.trajectory_length, 
 									sampleLog.env_name, sampleLog.env_extra_args, 
 									sampleLog.seed_number, sampleLog.nstate, 
 									sampleLog.ncontrol, sampleLog.time_step, 
 									sampleLog.n_rollout, sampleLog.data_set_file, 
 									sampleLog.others
 								)
+	print(reducedSampleLog)
 	
 	######################### Parse the data set used for training and validation
 	# Parse the data input files for the training set
@@ -340,84 +341,84 @@ def train(sampleLog, hyperParams, seeds_list, out_file=None, known_dynamics=None
 
 
 
-if __name__ == "__main__":
-	import time
-	from scipy.integrate import odeint as scipy_ode
-	import haiku as hk
+# if __name__ == "__main__":
+# 	import time
+# 	from scipy.integrate import odeint as scipy_ode
+# 	import haiku as hk
 
-	# Test the training algorithm on a very simple example --> Exponential dynamics
-	def known_dyn(x, t=0, lam=-2):
-		return lam * x
+# 	# Test the training algorithm on a very simple example --> Exponential dynamics
+# 	def known_dyn(x, t=0, lam=-2):
+# 		return lam * x
 
-	# Create the data set
-	def generate_sample(dyn_fn, seed, time_step, num_traj, traj_length, x_lb, x_ub, n_rollout, merge_traj=True):
-		np.random.seed(seed)
-		t_indexes = np.array([i * time_step for i in range(traj_length+n_rollout)])
-		res_state = []
-		res_rollout = [ [] for r in range(n_rollout)]
-		for i in tqdm(range(num_traj)):
-			x_init = np.random.uniform(low = x_lb, high=x_ub, size = x_lb.shape)
-			x_traj = scipy_ode(dyn_fn, x_init, t_indexes, full_output=False)
-			if merge_traj:
-				res_state.extend(x_traj[:traj_length])
-			else:
-				res_state.append(x_traj[:traj_length])
-			for j, r in enumerate(res_rollout):
-				r.extend(x_traj[(j+1):(j+1+traj_length),:])
-		return res_state, res_rollout
+# 	# Create the data set
+# 	def generate_sample(dyn_fn, seed, time_step, num_traj, traj_length, x_lb, x_ub, n_rollout, merge_traj=True):
+# 		np.random.seed(seed)
+# 		t_indexes = np.array([i * time_step for i in range(traj_length+n_rollout)])
+# 		res_state = []
+# 		res_rollout = [ [] for r in range(n_rollout)]
+# 		for i in tqdm(range(num_traj)):
+# 			x_init = np.random.uniform(low = x_lb, high=x_ub, size = x_lb.shape)
+# 			x_traj = scipy_ode(dyn_fn, x_init, t_indexes, full_output=False)
+# 			if merge_traj:
+# 				res_state.extend(x_traj[:traj_length])
+# 			else:
+# 				res_state.append(x_traj[:traj_length])
+# 			for j, r in enumerate(res_rollout):
+# 				r.extend(x_traj[(j+1):(j+1+traj_length),:])
+# 		return res_state, res_rollout
 
-	seed = 10
-	time_step = 0.1
-	n_rollout = 4
-	num_traj_train = [10]
-	num_traj_test = 5
-	traj_length = 50
-	x_lb = np.array([-1, -1])
-	x_ub = np.array([1, 1])
-	x_lb_test = 2 * np.array([-1, -1])
-	x_ub_test = 2 * np.array([1, 1])
-	x_traj, xnext_traj = generate_sample(known_dyn, seed, time_step, num_traj_train[-1], traj_length, x_lb, x_ub, n_rollout)
-	x_test, xnext_test = generate_sample(known_dyn, seed, time_step, num_traj_test, traj_length, x_lb_test, x_ub_test, n_rollout)
-	# coloc_points = (np.array(x_traj)[:len(x_test)+20,:], None, None)
-	coloc_points = (None, None, None)
-	# print(x_traj)
-	mSampleLog = SampleLog(x_traj, xnext_traj, None, None, (x_lb,None), (x_ub, None), \
-							x_test, xnext_test, None, None, (x_lb_test,None), (x_ub_test,None), 
-							coloc_points, num_traj_train, traj_length, 'test', {}, 
-							seed, x_lb.shape[0], 0, time_step, n_rollout, data_set_file=None, others=None)
+# 	seed = 10
+# 	time_step = 0.1
+# 	n_rollout = 4
+# 	num_traj_train = [10]
+# 	num_traj_test = 5
+# 	traj_length = 50
+# 	x_lb = np.array([-1, -1])
+# 	x_ub = np.array([1, 1])
+# 	x_lb_test = 2 * np.array([-1, -1])
+# 	x_ub_test = 2 * np.array([1, 1])
+# 	x_traj, xnext_traj = generate_sample(known_dyn, seed, time_step, num_traj_train[-1], traj_length, x_lb, x_ub, n_rollout)
+# 	x_test, xnext_test = generate_sample(known_dyn, seed, time_step, num_traj_test, traj_length, x_lb_test, x_ub_test, n_rollout)
+# 	# coloc_points = (np.array(x_traj)[:len(x_test)+20,:], None, None)
+# 	coloc_points = (None, None, None)
+# 	# print(x_traj)
+# 	mSampleLog = SampleLog(x_traj, xnext_traj, None, None, (x_lb,None), (x_ub, None), \
+# 							x_test, xnext_test, None, None, (x_lb_test,None), (x_ub_test,None), 
+# 							coloc_points, num_traj_train, traj_length, 'test', {}, 
+# 							seed, x_lb.shape[0], 0, time_step, n_rollout, data_set_file=None, others=None)
 
-	nn_params = {}
-	taylor_order = 2
-	baseline_params = {'name' : 'tayla', 'order' : taylor_order, 'midpoint' : {'output_sizes' : [16, 16], 'activation' : 'tanh', 'b_init' : {'initializer' : 'Constant', 'params' : {'constant' : 0} }, 'w_init' : {'initializer' : 'RandomUniform', 'params' : {'minval' : -0.1, 'maxval' : 0.1} } } }
+# 	nn_params = {}
+# 	taylor_order = 2
+# 	baseline_params = {'name' : 'tayla', 'order' : taylor_order, 'midpoint' : {'output_sizes' : [16, 16], 'activation' : 'tanh', 'b_init' : {'initializer' : 'Constant', 'params' : {'constant' : 0} }, 'w_init' : {'initializer' : 'RandomUniform', 'params' : {'minval' : -0.1, 'maxval' : 0.1} } } }
 
-	pen_constr = {'batch_size_test' : 8, 'batch_size_coloc' : 8,  'pen_ineq_init' : 0.0001,  'beta_ineq' : 10, 'coloc_set_size' : 0, 'tol_constraint_ineq' : 0.001}
-	if taylor_order == 1:
-		optimizer = {'name' : 'adam', 'learning_rate_init' : 0.002, 'learning_rate_end' : 0.001, 'weight_decay' : 0.0001, 'grad_clip' : 0.01}
-		num_gradient_iterations = 10000
-	else:
-		optimizer = {'name' : 'adam', 'learning_rate_init' : 0.01, 'learning_rate_end' : 0.01, 'weight_decay' : 0.0001, 'grad_clip' : 0.01}
-		num_gradient_iterations = 20000
-	batch_size = 64
-	freq_accuracy = [1.0, 100, 100]
-	freq_save = 200
-	patience = -1
-	normalize = False
-	hyperParams = HyperParamsNN('model_test', x_lb.shape[0], 0, time_step, nn_params, baseline_params, 
-								optimizer, batch_size, pen_constr, num_gradient_iterations, freq_accuracy, freq_save, patience, normalize)
+# 	pen_constr = {'batch_size_test' : 8, 'batch_size_coloc' : 8,  'pen_ineq_init' : 0.0001,  'beta_ineq' : 10, 'coloc_set_size' : 0, 'tol_constraint_ineq' : 0.001}
+# 	if taylor_order == 1:
+# 		optimizer = {'name' : 'adam', 'learning_rate_init' : 0.002, 'learning_rate_end' : 0.001, 'weight_decay' : 0.0001, 'grad_clip' : 0.01}
+# 		num_gradient_iterations = 10000
+# 	else:
+# 		optimizer = {'name' : 'adam', 'learning_rate_init' : 0.01, 'learning_rate_end' : 0.01, 'weight_decay' : 0.0001, 'grad_clip' : 0.01}
+# 		num_gradient_iterations = 20000
+# 	batch_size = 64
+# 	freq_accuracy = [1.0, 100, 100]
+# 	freq_save = 200
+# 	patience = -1
+# 	normalize = False
+# 	hyperParams = HyperParamsNN('model_test', x_lb.shape[0], 0, time_step, nn_params, baseline_params, 
+# 								optimizer, batch_size, pen_constr, num_gradient_iterations, freq_accuracy, freq_save, patience, normalize)
 
 
 
-	# print(hyperParams)
-	# print(mSampleLog)
-	train(mSampleLog, hyperParams, [1], 'test_output', known_dynamics=known_dyn)
+# 	# print(hyperParams)
+# 	# print(mSampleLog)
+# 	train(mSampleLog, hyperParams, [1], 'test_output', known_dynamics=known_dyn)
 
-	baseline_params['name'] = 'rk4'
-	m_rng = jax.random.PRNGKey(seed=1)
-	(params, _, _) , pred_xnext, loss_fun, _, _ =\
-		build_taylanets(m_rng, hyperParams.nstate, hyperParams.ncontrol, hyperParams.time_step, hyperParams.baseline_params, hyperParams.nn_params, None,
-			hyperParams.model_name, known_dyn, hyperParams.pen_constr, hyperParams.batch_size,
-			None, hyperParams.normalize)
-	cost, (m_res, extra) = jax.jit(loss_fun)(params, jnp.array(xnext_test), jnp.array(x_test), None , None , None, None, coloc_points=(None, None, None))
-	print(cost)
-	print(m_res)
-	print(extra)
+# 	baseline_params['name'] = 'rk4'
+# 	m_rng = jax.random.PRNGKey(seed=1)
+# 	(params, _, _) , pred_xnext, loss_fun, _, _ =\
+# 		build_taylanets(m_rng, hyperParams.nstate, hyperParams.ncontrol, hyperParams.time_step, hyperParams.baseline_params, hyperParams.nn_params, None,
+# 			hyperParams.model_name, known_dyn, hyperParams.pen_constr, hyperParams.batch_size,
+# 			None, hyperParams.normalize)
+# 	cost, (m_res, extra) = jax.jit(loss_fun)(params, jnp.array(xnext_test), jnp.array(x_test), None , None , None, None, coloc_points=(None, None, None))
+# 	print(cost)
+# 	print(m_res)
+# 	print(extra)
