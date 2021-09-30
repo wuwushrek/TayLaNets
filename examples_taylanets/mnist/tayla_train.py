@@ -287,7 +287,7 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
     # that an adaptive solver will take, then do it
     nfe_fun = None
     if count_nfe is not None:
-        from examples_taylanets.jinkelly_lib.lib.ode import odeint
+        from examples_taylanets.jinkelly_lib.lib_ode.ode import odeint
         @jax.jit
         def nfe_fun(params, _images):
              (_pre_ode_params, _dynamics_params, _, _post_ode_params) = params
