@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 with open("README.md", 'r') as f:
     long_description = f.read()
@@ -16,7 +16,8 @@ setup(
    author='Franck Djeumou and Cyrus Neary',
    author_email='fdjeumou@utexas.edu, cneary@utexas.edu',
    url="https://github.com/wuwushrek/TayLaNets.git",
-   packages=['taylanets'],
-   package_dir={'taylanets': 'taylanets/'},
+   packages=find_packages(),
+   # packages=['taylanets'],
+   # package_dir={'taylanets': 'taylanets/'},
    install_requires=_parse_requirements('requirements.txt'),
 )
