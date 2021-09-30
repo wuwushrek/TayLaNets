@@ -21,7 +21,7 @@ import haiku as hk
 import optax
 
 # Import the function to compute the taylor coefficient and remainder
-from taylanets.taylanets import taylor_order_n, der_order_n
+from taylanets.taylanets import taylor_order_n, der_order_n, midpoint_constraints
 
 # Import the datasets to be used
 import tensorflow_datasets as tfds
@@ -142,7 +142,7 @@ def _loss_fn(logits, labels):
 
 # function assumes ts = [0, 1]
 def init_model(rng, taylor_order, number_step, batch_size=1, optim=None, 
-            midpoint_layers=(12,12), count_nfe= None):
+            midpoint_layers=(12,12), count_nfe= None, pen_midpoint=0.0):
     """ Initialize the model and return the necessary functions to evaluate,
         update, and compute loss given batch of data
         :param rng             : A random key generator used to initialize the haiku module
@@ -244,26 +244,40 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
             next_state = state_t + jnp.sum(pow_timestep * m_expansion, axis=0)
             # Remainder term
             next_state += rem_coeff * der_order_n(midpoint_val, vector_field, taylor_order)
-        return next_state[...,:-1]
+        return next_state[...,:-1], midpoint_val[...,:-1]
 
 
     # Define a forward function to compute the logits
-    @jax.jit
-    def forward(params, _images):
+    # @jax.jit
+    def forward_aux(params, _images, midpoint_compute, consider_zero_penalty=True):
         (_pre_ode_params, _dynamics_params, _midpoint_params, _post_ode_params) = params
         out_pre_ode = pre_ode_fn(_pre_ode_params, _images)
-
+        not_penalize = pen_midpoint <= 0 and consider_zero_penalty
         # Build the iteration loop for the ode solver when step size is not 1
         def rollout(carry, extra):
-            next_x = pred_xnext((_dynamics_params, _midpoint_params), carry, extra)
-            return next_x, None
+            if (not midpoint_compute) or not_penalize:
+                next_x, _ = pred_xnext((_dynamics_params, _midpoint_params), carry, extra)
+                return next_x, None
+            else:
+                next_x, currmidpoint = pred_xnext((_dynamics_params, _midpoint_params), carry, extra)
+                midpoint_constr = midpoint_constraints(currmidpoint, carry, next_x)
+                return next_x, (jnp.sum(jnp.where(midpoint_constr > 0, 1.0, 0.0) * jnp.abs(midpoint_constr)) / midpoint_constr.size)
 
-        # Loop over the grid time step
-        out_ode, _ = jax.lax.scan(rollout, out_pre_ode, time_indexes)
+        if not midpoint_compute:
+            # Loop over the grid time step
+            out_ode, _ = jax.lax.scan(rollout, out_pre_ode, time_indexes)
+            return post_ode_fn(_post_ode_params, out_ode)
+        else:
+            # Loop over the grid time step
+            out_ode, m_constr = jax.lax.scan(rollout, out_pre_ode, time_indexes)
+            # Post process and return the result
+            return post_ode_fn(_post_ode_params, out_ode), (0.0 if not_penalize else jnp.mean(m_constr))
 
-        # Post process and return the result
-        return post_ode_fn(_post_ode_params, out_ode)
-
+    # The forward function with
+    forward_loss = jax.jit(lambda params, _images : forward_aux(params, _images, midpoint_compute=True, consider_zero_penalty=True))
+    # THe forward function without computing the contraint on the midpoint
+    forward = jax.jit(lambda params, _images : forward_aux(params, _images, midpoint_compute=False))
+    forward_utils = jax.jit(lambda params, _images : forward_aux(params, _images, midpoint_compute=True, consider_zero_penalty=False))
 
     # Define the loss function
     # @jax.jit
@@ -271,7 +285,8 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
         """ Compute the loss function of the prediction method
         """
         # Compute the loss function
-        return _loss_fn(forward(params, _images), _labels)
+        logits, mpoint_constr = forward_loss(params, _images)
+        return _loss_fn(logits, _labels) + pen_midpoint * mpoint_constr
 
     # Define the update function
     grad_fun = jax.grad(loss_fun, has_aux=False)
@@ -297,7 +312,7 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
              # -1 here is to take the last element in the integration scheme
              return post_ode_fn(_post_ode_params, out_ode[-1]), jnp.mean(f_nfe)
 
-    return m_params, forward, loss_fun, update, nfe_fun, post_ode_init.dtype
+    return m_params, (forward, forward_utils), loss_fun, update, nfe_fun, post_ode_init.dtype
 
 
 def init_data(train_batch_size, test_batch_size, seed_number=0, shuffle=1000, validation_set=False):
@@ -361,6 +376,7 @@ if __name__ == "__main__":
     parser.add_argument('--train_batch_size', type=int, default=100)
     parser.add_argument('--test_batch_size', type=int, default=1000)
     parser.add_argument('--taylor_order', type=int, default=1)
+    parser.add_argument('--pen_midpoint', type=float, default=0)
     parser.add_argument('--lr_init', type=float, default=1e-2)
     parser.add_argument('--lr_end', type=float, default=1e-2)
     parser.add_argument('--w_decay', type=float, default=1e-3)
@@ -412,9 +428,9 @@ if __name__ == "__main__":
     # Build the solver
     _count_nfe = None if not args.count_odeint_nfe else (args.atol, args.rtol)
     midpoint_hidden_layer_size = (12,12) # Hidden layers of the midpoint neural network
-    m_params, forward, loss_fun, update, nfe_fun, m_dtype = \
+    m_params, forward_mixture, loss_fun, update, nfe_fun, m_dtype = \
                     init_model(rng, args.taylor_order, args.num_steps, batch_size=train_batch_size, 
-                                optim=opt, midpoint_layers=midpoint_hidden_layer_size, count_nfe=_count_nfe)
+                                optim=opt, midpoint_layers=midpoint_hidden_layer_size, count_nfe=_count_nfe, pen_midpoint=args.pen_midpoint)
 
 
     # Initialize the state of the optimizer
@@ -431,6 +447,8 @@ if __name__ == "__main__":
     opt_accuracy_test = None
     opt_accuracy_train = None
     opt_accuracy_odeint = None
+    opt_constr_mid_evol_test = None
+    opt_constr_mid_evol_train = None
     iter_since_opt_test =  None
 
     total_compute_time = 0.0
@@ -447,15 +465,17 @@ if __name__ == "__main__":
     nfe_evol_train = list()
     nfe_evol_test = list()
     nfe_evol_odeint = list()
+    constr_mid_evol_train = list()
+    constr_mid_evol_test = list()
 
     m_parameters_dict = vars(args)
 
-    def evaluate_loss(params, fwd_fun, data_eval, num_iter, is_taylor=True):
+    def evaluate_loss(params, forward_fun, data_eval, num_iter, is_taylor=True):
         """ 
             Evaluate the loss function, accuracy, number of function evaluation given
             a forward function
             :param params : The parameters of the neural networks
-            :param fwd_fun : A forward function to compute the logits
+            :param forward_fun : A forward function to compute the logits
             :param data_eval : The data set (should be iteratble) to use when computing the logitsout tayla expansion
             :param data_eval : The number of iteration to go through the full data set
             :param is_taylor : Specify if the forward function is coming from 
@@ -464,7 +484,16 @@ if __name__ == "__main__":
         acc_values = list()
         pred_time = list()
         nfe_val = list()
+        lossmidpoint = list()
         funEValTaylor = (args.taylor_order+1)*np.log((args.taylor_order+1)) # or should be order**2
+
+        if is_taylor:
+            forward_fun_temp, forward_loss = forward_fun
+            fwd_fun = lambda params, _images : (forward_fun_temp(params, _images), funEValTaylor)
+        else:
+            fwd_fun = forward_fun
+            forward_loss = lambda params, _images : (0, 0)
+
         for _ in tqdm(range(num_iter),leave=False):
             # Extract the current data
             _images, _labels = next(data_eval)
@@ -472,22 +501,21 @@ if __name__ == "__main__":
 
             # Call the ode to compute the logits
             curr_time = time.time()
-            if is_taylor:
-                logits, number_fun_eval = fwd_fun(params, _images), funEValTaylor
-            else:
-                logits, number_fun_eval = fwd_fun(params, _images)
+            logits, number_fun_eval = fwd_fun(params, _images)
             logits.block_until_ready()
             diff_time  = time.time() - curr_time
 
             # Compute the loss and accuracy of the of obtained logits
             lossval, accval = sep_losses(logits, _labels)
+            _, lossmidpoint_val = forward_loss(params, _images)
 
             # Save the data
             pred_time.append(diff_time)
             acc_values.append(accval)
             loss_values.append(lossval)
             nfe_val.append(number_fun_eval)
-        return jnp.mean(jnp.array(loss_values)), jnp.mean(jnp.array(acc_values)), jnp.mean(jnp.array(pred_time)), jnp.mean(jnp.array(nfe_val)) 
+            lossmidpoint.append(lossmidpoint_val)
+        return jnp.mean(jnp.array(loss_values)), jnp.mean(jnp.array(acc_values)), jnp.mean(jnp.array(pred_time)), jnp.mean(jnp.array(nfe_val)), jnp.mean(jnp.array(lossmidpoint))
 
     # Open the info file to save the command line print
     outfile = open(args.dirname+'_info.txt', 'w')
@@ -524,16 +552,16 @@ if __name__ == "__main__":
                 # Compute the loss function over the entire training set
                 print_str_test = '--------------------------------- Eval on Test Data [epoch={} | num_batch = {}] ---------------------------------\n'.format(epoch, i)
                 tqdm.write(print_str_test)
-                loss_values_train, acc_values_train, pred_time_train, nfe_train = evaluate_loss(m_params, forward, ds_train, meta['num_train_batches'])
+                loss_values_train, acc_values_train, pred_time_train, nfe_train, contr_mid_train = evaluate_loss(m_params, forward_mixture, ds_train, meta['num_train_batches'])
                 # Compute the loss on the testing set if it is different from the training set
                 if args.validation_set:
-                    loss_values_test, acc_values_test, pred_time_test, nfe_test = evaluate_loss(m_params, forward, ds_train_eval, meta['num_test_batches'])
+                    loss_values_test, acc_values_test, pred_time_test, nfe_test, contr_mid_test = evaluate_loss(m_params, forward_mixture, ds_train_eval, meta['num_test_batches'])
                 else:
-                    loss_values_test, acc_values_test, pred_time_test, nfe_test = loss_values_train, acc_values_train, pred_time_train, nfe_train
+                    loss_values_test, acc_values_test, pred_time_test, nfe_test, contr_mid_test = loss_values_train, acc_values_train, pred_time_train, nfe_train, contr_mid_train
                 # Compute the loss using odeint on the test data
                 loss_values_odeint, acc_values_odeint, pred_time_odeint, nfe_odeint = 0, 0, 0, 0
                 if nfe_fun is not None:
-                     loss_values_odeint, acc_values_odeint, pred_time_odeint, nfe_odeint = evaluate_loss(m_params, nfe_fun, ds_train_eval, meta['num_test_batches'], is_taylor=False)
+                     loss_values_odeint, acc_values_odeint, pred_time_odeint, nfe_odeint, _ = evaluate_loss(m_params, nfe_fun, ds_train_eval, meta['num_test_batches'], is_taylor=False)
 
                 # First time we have a value for the loss function
                 if opt_loss_train is None or opt_loss_test is None or (opt_loss_test > loss_values_test):
@@ -546,6 +574,8 @@ if __name__ == "__main__":
                     opt_nfe_test = nfe_test
                     opt_nfe_train = nfe_train
                     opt_nfe_odeint = nfe_odeint
+                    opt_constr_mid_evol_test = contr_mid_test
+                    opt_constr_mid_evol_train = contr_mid_train
                     opt_params_dict = m_params
                     iter_since_opt_test = epoch # Start counting the number of times we evaluate the learned model
 
@@ -562,13 +592,14 @@ if __name__ == "__main__":
 
                 # Do some printing for result visualization
                 print_str = 'Iter {:05d} | Total Update Time {:.2f} | Update time {}\n\n'.format(itr_count, total_compute_time, update_end)
-                print_str += 'Loss Train {:.6f} | Loss Test {:.6f} | Loss ODEINT {:.6f}\n'.format(loss_values_train, loss_values_test, loss_values_odeint)
-                print_str += 'OPT Loss Train {:.6f} | OPT Loss Test {:.6f} | OPT Loss ODEINT {:.6f}\n\n'.format(opt_loss_train, opt_loss_test, opt_loss_odeint)               
-                print_str += 'Accur Train {:.3f} | Accur Test {:.3f} | Accur ODEINT {:.3f}\n'.format(acc_values_train,acc_values_test, acc_values_odeint)
-                print_str += 'OPT Accuracy Train {:.6f} | OPT Accuracy test {:.6f} | OPT Accuracy odeint {:.6f}\n\n'.format(opt_accuracy_train, opt_accuracy_test, opt_accuracy_odeint)
-                print_str += 'NFE Train {:.6f} | NFE Test {:.6f} | NFE ODEINT {:.6f}\n'.format(nfe_train, nfe_test, nfe_odeint)
-                print_str += 'OPT NFE Train {:.6f} | OPT NFE Test {:.6f} | OPT NFE ODEINT {:.6f}\n\n'.format(opt_nfe_train, opt_nfe_test, opt_nfe_odeint)
-                print_str += 'Pred Time train {:.5f} | Pred Time Test {:.5f} | Pred Time ODEINT {:.5f}\n\n'.format(pred_time_train, pred_time_test, pred_time_odeint)
+                print_str += 'Loss Train {:.2e} | Loss Test {:.2e} | Loss ODEINT {:.6f}\n'.format(loss_values_train, loss_values_test, loss_values_odeint)
+                print_str += 'OPT Loss Train {:.2e} | OPT Loss Test {:.2e} | OPT Loss ODEINT {:.2e}\n\n'.format(opt_loss_train, opt_loss_test, opt_loss_odeint)               
+                print_str += 'Accur Train {:.2f} | Accur Test {:.2f} | Accur ODEINT {:.2f}\n'.format(acc_values_train*100,acc_values_test*100, acc_values_odeint*100)
+                print_str += 'OPT Accuracy Train {:.2f} | OPT Accuracy test {:.2f} | OPT Accuracy odeint {:.2f}\n\n'.format(opt_accuracy_train*100, opt_accuracy_test*100, opt_accuracy_odeint*100)
+                print_str += 'NFE Train {:.2f} | NFE Test {:.2f} | NFE ODEINT {:.2f}\n'.format(nfe_train, nfe_test, nfe_odeint)
+                print_str += 'OPT NFE Train {:.2f} | OPT NFE Test {:.2f} | OPT NFE ODEINT {:.2f}\n\n'.format(opt_nfe_train, opt_nfe_test, opt_nfe_odeint)
+                print_str += 'Pred Time train {:.2e} | Pred Time Test {:.2e} | Pred Time ODEINT {:.2e}\n\n'.format(pred_time_train, pred_time_test, pred_time_odeint)
+                print_str += 'Midpoint Constr train {:.2e} | Midpoint Constr Test {:.2e} | OPT Midpoint Constr train {:.2e} | OPT Midpoint Constr Test {:.2e} \n\n'.format(contr_mid_train, contr_mid_test, opt_constr_mid_evol_train, opt_constr_mid_evol_test)
                 tqdm.write(print_str)
 
                 # Save all the obtained data
@@ -584,6 +615,10 @@ if __name__ == "__main__":
                 nfe_evol_train.append(nfe_train)
                 nfe_evol_test.append(nfe_test)
                 nfe_evol_odeint.append(nfe_odeint)
+                nfe_evol_train.append(nfe_train)
+                nfe_evol_test.append(nfe_test)
+                constr_mid_evol_train.append(contr_mid_train)
+                constr_mid_evol_test.append(contr_mid_test)
 
                 # Save these info in a file
                 outfile = open(args.dirname+'_info.txt', 'a')
@@ -600,6 +635,7 @@ if __name__ == "__main__":
                                 'accuracy_evol_train' : train_accuracy, 'accuracy_evol_test' : test_accuracy, 'accuracy_evol_odeint' : test_accuracy_odeint, 
                                 'predtime_evol_train' : predtime_evol_train, 'predtime_evol_test' : predtime_evol_test, 'predtime_evol_odeint' : predtime_evol_odeint, 
                                 'nfe_evol_train' : nfe_evol_train, 'nfe_evol_test' : nfe_evol_test, 'nfe_evol_odeint' : nfe_evol_odeint, 
+                                'constr_mid_evol_train' : constr_mid_evol_train, 'constr_mid_evol_test' : constr_mid_evol_test, 'opt_constr_mid_evol_train' : opt_constr_mid_evol_train, 'opt_constr_mid_evol_test' : opt_constr_mid_evol_train,
                                 'training_parameters' : m_parameters_dict}
                 outfile = open(args.dirname+'.pkl', "wb")
                 pickle.dump(m_dict_res, outfile)
