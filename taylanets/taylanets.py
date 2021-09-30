@@ -61,8 +61,10 @@ def midpoint_constraints(midpoint_val: jnp.ndarray, state : jnp.ndarray, nextsta
 		:param state : The current state of the system
 		:nextstate : The next state of the system
 	"""
-	lb_constr = state - midpoint_val
-	ub_constr = midpoint_val -  nextstate
+	min_point = jnp.minimum(state, nextstate)
+	max_point = jnp.maximum(state, nextstate)
+	lb_constr = min_point - midpoint_val
+	ub_constr = midpoint_val -  max_point
 	return jnp.hstack((lb_constr, ub_constr))
 
 
