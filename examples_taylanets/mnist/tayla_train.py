@@ -81,20 +81,24 @@ class Midpoint(hk.Module):
     """
     Compute the coefficients in the formula obtained to simplify the learning of the midpoint
     """
-    def __init__(self, dim, output_sizes):
+    def __init__(self, dim, output_sizes, approx_mid=True):
         """ Build a MLP approximating the coefficient in the midpoint formula
             :param dim : Specifies the flatten dimension (input + time step)
             :param output_sizes : Size of the hidden layer
         """
         super(Midpoint, self).__init__()
+        self.approx_mid = approx_mid
         self.dim = dim
         # Initialize the weight to be randomly close to zero
         self.model = hk.nets.MLP(output_sizes=(*output_sizes, dim), 
-                        w_init=hk.initializers.RandomUniform(minval=-1e-1, maxval=1e-1), 
-                        b_init=jnp.zeros, activation=jax.nn.tanh )
+                        w_init=hk.initializers.RandomUniform(minval=0, maxval=0), 
+                        b_init=jnp.zeros, activation=jax.numpy.tanh)
 
     def __call__(self, xt):
-        return self.model(xt)
+    	if self.approx_mid:
+    		return self.model(xt)
+    	else:
+    		return 0.0
 
 
 class PostODE(hk.Module):
@@ -142,7 +146,8 @@ def _loss_fn(logits, labels):
 
 # function assumes ts = [0, 1]
 def init_model(rng, taylor_order, number_step, batch_size=1, optim=None, 
-            midpoint_layers=(12,12), count_nfe= None, pen_midpoint=0.0, pen_remainder= 0.0):
+            midpoint_layers=(12,12), count_nfe= None, pen_midpoint=0.0, 
+            pen_remainder= 0.0, approx_mid=True):
     """ Initialize the model and return the necessary functions to evaluate,
         update, and compute loss given batch of data
         :param rng             : A random key generator used to initialize the haiku module
@@ -156,6 +161,7 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
                                  and solving the ode when using odeint. count_nfe[1] = atol and count_nfe[2] = rtol
         :param pen_midpoint    : Penalty coefficient to ensure this is a midpoint value
         :param pen_remainder   : Penalty coefficient to ensure the remainder is small (in theory it is and this avoid overfitting)
+        :param approx_mid      : Specify if this module should approximate the midpoint value
     """
     # Integration time -> initial time is 0 and end time is 1
     ts = jnp.array([0., 1.])
@@ -184,7 +190,7 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
     dynamics_wrap = dynamics.apply
 
     # Build the Midpoint function module
-    midpoint = hk.without_apply_rng(hk.transform(wrap_module(Midpoint, midpoint_shape, midpoint_layers)))
+    midpoint = hk.without_apply_rng(hk.transform(wrap_module(Midpoint, midpoint_shape, midpoint_layers, approx_mid)))
     midpoint_params = midpoint.init(rng, midpoint_init)
     midpoint_wrap = midpoint.apply
 
@@ -207,7 +213,7 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
     rem_coeff = pow_timestep[-1]
     # Divide the power series of the time step by factorial of the derivative order --> Do some reshaping for broadcasting issue
     pow_timestep = pow_timestep[:-1].reshape((-1,1,1))
-    def pred_xnext(params : Tuple[hk.Params, hk.Params], state : jnp.ndarray, t : float) -> jnp.ndarray:
+    def pred_xnext(params : Tuple[hk.Params, hk.Params], state_t : jnp.ndarray): #, t : float) -> jnp.ndarray:
         """ Predict the next using our Taylor-Lagrange expansion with learned remainder"""
         params_dyn, params_mid = params
 
@@ -220,7 +226,7 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
             return jnp.concatenate((vField, curr_dt), axis=-1)
 
         # Merge the state value and time
-        state_t = jnp.concatenate((state, jnp.ones_like(state[...,:1])*t), axis=-1)
+        # state_t = jnp.concatenate((state, jnp.ones_like(state[...,:1])*t), axis=-1)
 
         # Compute the vector field as it is used recursively in jet and the midpoint value
         vField = vector_field(state_t)
@@ -251,7 +257,7 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
         # Add the remainder term of the Taylor expansion at the midpoint
         next_state += rem_term
 
-        return next_state[...,:-1], midpoint_val[...,:-1], rem_term[...,:-1]
+        return next_state, midpoint_val, rem_term
 
 
     # Define a forward function to compute the logits
@@ -261,21 +267,16 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
         out_pre_ode = pre_ode_fn(_pre_ode_params, _images)
         # Build the iteration loop for the ode solver when step size is not 1
         def rollout(carry, extra):
-            if (not midpoint_compute):
-                next_x, _, _ = pred_xnext((_dynamics_params, _midpoint_params), carry, extra)
-                return next_x, None
-            else:
-                next_x, currmidpoint, remTerm = pred_xnext((_dynamics_params, _midpoint_params), carry, extra)
-                # if pen_midpoint <= 0:
-                #     midpoint_constr_val = 0.0
-                # else:
-                midpoint_constr = midpoint_constraints(currmidpoint, carry, next_x)
-                midpoint_constr_val = jnp.mean(jnp.where(midpoint_constr > 0, 1.0, 0.0) * jnp.abs(midpoint_constr))
-                # if pen_remainder <= 0:
-                #     rem_constr = 0.0
-                # else:
-                rem_constr = jnp.mean(jnp.square(remTerm))
-                return next_x, jnp.array([midpoint_constr_val, rem_constr])
+        	state_t = jnp.concatenate((carry, jnp.ones_like(carry[...,:1])*extra), axis=-1)
+        	if (not midpoint_compute):
+        		next_x, _, _ = pred_xnext((_dynamics_params, _midpoint_params), state_t) # carry , extra)
+        		return next_x[...,:-1], None
+        	else:
+        		next_x, currmidpoint, remTerm = pred_xnext((_dynamics_params, _midpoint_params), state_t) #, carry, extra)
+        		midpoint_constr = midpoint_constraints(currmidpoint, state_t, next_x)
+        		midpoint_constr_val = jnp.mean(jnp.where(midpoint_constr > 0, 1.0, 0.0) * jnp.abs(midpoint_constr))
+        		rem_constr = jnp.mean(jnp.abs(remTerm))
+        		return next_x[...,:-1], jnp.array([midpoint_constr_val, rem_constr])
 
         if not midpoint_compute:
             # Loop over the grid time step
@@ -402,6 +403,7 @@ if __name__ == "__main__":
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--count_odeint_nfe',  action="store_true")
     parser.add_argument('--validation_set',  action="store_true")
+    parser.add_argument('--no_midpoint',  action="store_false")
     parser.add_argument('--atol', type=float, default=1.4e-8)
     parser.add_argument('--rtol', type=float, default=1.4e-8)
     parser.add_argument('--num_steps', type=int, default=2)
@@ -441,11 +443,11 @@ if __name__ == "__main__":
 
     # Build the solver
     _count_nfe = None if not args.count_odeint_nfe else (args.atol, args.rtol)
-    midpoint_hidden_layer_size = (12,12) # Hidden layers of the midpoint neural network
+    midpoint_hidden_layer_size = (24,24) # Hidden layers of the midpoint neural network
     m_params, forward_mixture, loss_fun, update, nfe_fun, m_dtype = \
                     init_model(rng, args.taylor_order, args.num_steps, batch_size=train_batch_size, 
                                 optim=opt, midpoint_layers=midpoint_hidden_layer_size, count_nfe=_count_nfe, 
-                                pen_midpoint=args.pen_midpoint, pen_remainder = args.pen_remainder)
+                                pen_midpoint=args.pen_midpoint, pen_remainder = args.pen_remainder, approx_mid = args.no_midpoint)
 
 
     # Initialize the state of the optimizer
