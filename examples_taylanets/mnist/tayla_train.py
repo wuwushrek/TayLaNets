@@ -147,7 +147,7 @@ def _loss_fn(logits, labels):
 # function assumes ts = [0, 1]
 def init_model(rng, taylor_order, number_step, batch_size=1, optim=None, 
             midpoint_layers=(12,12), count_nfe= None, pen_midpoint=0.0, 
-            pen_remainder= 0.0, approx_mid=True):
+            pen_remainder= 0.0, approx_mid=True, method='tayla'):
     """ Initialize the model and return the necessary functions to evaluate,
         update, and compute loss given batch of data
         :param rng             : A random key generator used to initialize the haiku module
@@ -167,7 +167,7 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
     ts = jnp.array([0., 1.])
 
     # Discretize the integration time using the given number of step
-    time_step = (ts[1]-ts[0]) / number_step
+    time_step = float((ts[1]-ts[0]) / number_step)
     time_indexes = jnp.array([ time_step * (i+1) for i in range(number_step)])
 
     # MNIST problem size and dummy random intiial values
@@ -198,9 +198,6 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
     post_ode = hk.without_apply_rng(hk.transform(wrap_module(PostODE)))
     post_ode_params = post_ode.init(rng, post_ode_init)
     post_ode_fn = post_ode.apply
-
-    # Regroup the parameters of this entire module
-    m_params = (pre_ode_params, dynamics_params, midpoint_params, post_ode_params)
 
     # Define the ODE prediction function
     inv_m_fact = jet.fact(jnp.array([i+1 for i in range(taylor_order+1)]))
@@ -259,7 +256,6 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
 
         return next_state, midpoint_val, rem_term
 
-
     # Define a forward function to compute the logits
     # @jax.jit
     def forward_aux(params, _images, midpoint_compute):
@@ -267,16 +263,16 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
         out_pre_ode = pre_ode_fn(_pre_ode_params, _images)
         # Build the iteration loop for the ode solver when step size is not 1
         def rollout(carry, extra):
-        	state_t = jnp.concatenate((carry, jnp.ones_like(carry[...,:1])*extra), axis=-1)
-        	if (not midpoint_compute):
-        		next_x, _, _ = pred_xnext((_dynamics_params, _midpoint_params), state_t) # carry , extra)
-        		return next_x[...,:-1], None
-        	else:
-        		next_x, currmidpoint, remTerm = pred_xnext((_dynamics_params, _midpoint_params), state_t) #, carry, extra)
-        		midpoint_constr = midpoint_constraints(currmidpoint, state_t, next_x)
-        		midpoint_constr_val = jnp.mean(jnp.where(midpoint_constr > 0, 1.0, 0.0) * jnp.abs(midpoint_constr))
-        		rem_constr = jnp.mean(jnp.abs(remTerm))
-        		return next_x[...,:-1], jnp.array([midpoint_constr_val, rem_constr])
+            state_t = jnp.concatenate((carry, jnp.ones_like(carry[...,:1])*extra), axis=-1)
+            if (not midpoint_compute):
+                next_x, _, _ = pred_xnext((_dynamics_params, _midpoint_params), state_t) # carry , extra)
+                return next_x[...,:-1], None
+            else:
+                next_x, currmidpoint, remTerm = pred_xnext((_dynamics_params, _midpoint_params), state_t) #, carry, extra)
+                midpoint_constr = midpoint_constraints(currmidpoint, state_t, next_x)
+                midpoint_constr_val = jnp.mean(jnp.where(midpoint_constr > 0, 1.0, 0.0) * jnp.abs(midpoint_constr))
+                rem_constr = jnp.mean(jnp.abs(remTerm))
+                return next_x[...,:-1], jnp.array([midpoint_constr_val, rem_constr])
 
         if not midpoint_compute:
             # Loop over the grid time step
@@ -291,7 +287,10 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
     # The forward function with
     forward_loss = jax.jit(lambda params, _images : forward_aux(params, _images, midpoint_compute=True))
     # THe forward function without computing the contraint on the midpoint
-    forward = jax.jit(lambda params, _images : forward_aux(params, _images, midpoint_compute=False))
+    forward_nooverhead = jax.jit(lambda params, _images : forward_aux(params, _images, midpoint_compute=False))
+    m_forward = (forward_nooverhead, forward_loss)
+    # Regroup the parameters of this entire module
+    m_params = (pre_ode_params, dynamics_params, midpoint_params, post_ode_params)
 
     # Define the loss function
     # @jax.jit
@@ -301,6 +300,30 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
         # Compute the loss function
         logits, mpoint_constr = forward_loss(params, _images)
         return _loss_fn(logits, _labels) + pen_midpoint * mpoint_constr[0] + pen_remainder * mpoint_constr[1]
+
+
+    # Define a function to predict next state using fixed time step rk4
+    if method != 'tayla':
+        from examples_taylanets.jinkelly_lib.lib_ode.ode import odeint_grid, odeint
+        if method == 'odeint_grid':
+            nodeint_aux = lambda y0, ts, params: odeint_grid(lambda _y, _t, _params : dynamics_wrap(_params, _y, _t), y0, ts, params, step_size=time_step)
+        elif method == 'odeint':
+            nodeint_aux = lambda y0, ts, params: odeint(lambda _y, _t, _params : dynamics_wrap(_params, _y, _t), y0, ts, params, atol=args.atol, rtol=args.rtol)
+        else:
+            raise Exception('{} not implemented yet !'.format(method))
+        @jax.jit
+        def forward(params, _images):
+            (_pre_ode_params, _dynamics_params, _post_ode_params) = params
+            out_pre_ode = pre_ode_fn(_pre_ode_params, _images)
+            out_ode, f_nfe = nodeint_aux(out_pre_ode, ts, _dynamics_params)
+            return post_ode_fn(_post_ode_params, out_ode[-1]), jnp.mean(f_nfe)
+        # @jax.jit
+        def loss_fun(params, _images, _labels):
+            logits, _ = forward(params, _images)
+            return _loss_fn(logits, _labels)
+        m_forward = forward
+        # Regroup the parameters of this entire module
+        m_params = (pre_ode_params, dynamics_params, post_ode_params)
 
     # Define the update function
     grad_fun = jax.grad(loss_fun, has_aux=False)
@@ -316,17 +339,16 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
     # that an adaptive solver will take, then do it
     nfe_fun = None
     if count_nfe is not None:
-        from examples_taylanets.jinkelly_lib.lib_ode.ode import odeint
+        # from examples_taylanets.jinkelly_lib.lib_ode.ode import odeint
         @jax.jit
         def nfe_fun(params, _images):
-             (_pre_ode_params, _dynamics_params, _, _post_ode_params) = params
-             m_dyn = lambda y, t : dynamics_wrap(_dynamics_params, y, t) 
-             out_pre_ode = pre_ode_fn(_pre_ode_params, _images)
+             m_dyn = lambda y, t : dynamics_wrap(params[1], y, t) 
+             out_pre_ode = pre_ode_fn(params[0], _images)
              out_ode, f_nfe = odeint(m_dyn, out_pre_ode, ts, atol=count_nfe[0], rtol=count_nfe[1])
              # -1 here is to take the last element in the integration scheme
-             return post_ode_fn(_post_ode_params, out_ode[-1]), jnp.mean(f_nfe)
+             return post_ode_fn(params[-1], out_ode[-1]), jnp.mean(f_nfe)
 
-    return m_params, (forward, forward_loss), loss_fun, update, nfe_fun, post_ode_init.dtype
+    return m_params, m_forward, loss_fun, update, nfe_fun, post_ode_init.dtype
 
 
 def init_data(train_batch_size, test_batch_size, seed_number=0, shuffle=1000, validation_set=False):
@@ -402,6 +424,7 @@ if __name__ == "__main__":
     parser.add_argument('--dirname', type=str, default='neur_train')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--count_odeint_nfe',  action="store_true")
+    parser.add_argument('--method',  type=str, default='tayla') # choices odeint or odeint_grid
     parser.add_argument('--validation_set',  action="store_true")
     parser.add_argument('--no_midpoint',  action="store_false")
     parser.add_argument('--atol', type=float, default=1.4e-8)
@@ -447,7 +470,8 @@ if __name__ == "__main__":
     m_params, forward_mixture, loss_fun, update, nfe_fun, m_dtype = \
                     init_model(rng, args.taylor_order, args.num_steps, batch_size=train_batch_size, 
                                 optim=opt, midpoint_layers=midpoint_hidden_layer_size, count_nfe=_count_nfe, 
-                                pen_midpoint=args.pen_midpoint, pen_remainder = args.pen_remainder, approx_mid = args.no_midpoint)
+                                pen_midpoint=args.pen_midpoint, pen_remainder = args.pen_remainder, 
+                                approx_mid = args.no_midpoint, method= args.method)
 
 
     # Initialize the state of the optimizer
@@ -576,10 +600,10 @@ if __name__ == "__main__":
                 # Compute the loss function over the entire training set
                 print_str_test = '--------------------------------- Eval on Test Data [epoch={} | num_batch = {}] ---------------------------------\n'.format(epoch, i)
                 tqdm.write(print_str_test)
-                loss_values_train, acc_values_train, pred_time_train, nfe_train, contr_mid_train, contr_rem_train = evaluate_loss(m_params, forward_mixture, ds_train, meta['num_train_batches'])
+                loss_values_train, acc_values_train, pred_time_train, nfe_train, contr_mid_train, contr_rem_train = evaluate_loss(m_params, forward_mixture, ds_train, meta['num_train_batches'], is_taylor = args.method == 'tayla')
                 # Compute the loss on the testing set if it is different from the training set
                 if args.validation_set:
-                    loss_values_test, acc_values_test, pred_time_test, nfe_test, contr_mid_test, contr_rem_test = evaluate_loss(m_params, forward_mixture, ds_train_eval, meta['num_test_batches'])
+                    loss_values_test, acc_values_test, pred_time_test, nfe_test, contr_mid_test, contr_rem_test = evaluate_loss(m_params, forward_mixture, ds_train_eval, meta['num_test_batches'], is_taylor = args.method == 'tayla')
                 else:
                     loss_values_test, acc_values_test, pred_time_test, nfe_test, contr_mid_test, contr_rem_test = loss_values_train, acc_values_train, pred_time_train, nfe_train, contr_mid_train,contr_rem_train
                 # Compute the loss using odeint on the test data
