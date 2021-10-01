@@ -512,7 +512,7 @@ if __name__ == "__main__":
             fwd_fun = lambda params, _images : (forward_fun_temp(params, _images), funEValTaylor)
         else:
             fwd_fun = forward_fun
-            forward_loss = lambda params, _images : (0, 0, 0)
+            forward_loss = lambda params, _images : (0, (0, 0))
 
         for _ in tqdm(range(num_iter),leave=False):
             # Extract the current data
