@@ -588,7 +588,7 @@ if __name__ == "__main__":
                      loss_values_odeint, acc_values_odeint, pred_time_odeint, nfe_odeint, _, _ = evaluate_loss(m_params, nfe_fun, ds_train_eval, meta['num_test_batches'], is_taylor=False)
 
                 # First time we have a value for the loss function
-                if opt_loss_train is None or opt_loss_test is None or (opt_loss_test > loss_values_test):
+                if opt_loss_train is None or opt_loss_test is None or (opt_accuracy_test < acc_values_test):
                     opt_loss_test = loss_values_test
                     opt_loss_train = loss_values_train
                     opt_loss_odeint = loss_values_odeint
