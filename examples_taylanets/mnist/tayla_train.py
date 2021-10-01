@@ -339,7 +339,7 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
     # that an adaptive solver will take, then do it
     nfe_fun = None
     if count_nfe is not None:
-        # from examples_taylanets.jinkelly_lib.lib_ode.ode import odeint
+        from examples_taylanets.jinkelly_lib.lib_ode.ode import odeint
         @jax.jit
         def nfe_fun(params, _images):
              m_dyn = lambda y, t : dynamics_wrap(params[1], y, t) 
@@ -362,7 +362,7 @@ def init_data(train_batch_size, test_batch_size, seed_number=0, shuffle=1000, va
                                      shuffle_files=True,
                                      as_supervised=True,
                                      with_info=True,
-                                     read_config=tfds.ReadConfig(shuffle_seed=seed_number))
+                                     read_config=tfds.ReadConfig(shuffle_seed=seed_number, try_autocache=False))
 
     if validation_set:
         ds_train, ds_test = ds_data
@@ -383,11 +383,11 @@ def init_data(train_batch_size, test_batch_size, seed_number=0, shuffle=1000, va
     ds_train = ds_train.repeat()
     ds_train = ds_train.shuffle(shuffle, seed=seed_number)
 
-    ds_test = ds_test.cache()
-    ds_test = ds_test.repeat()
-    ds_test = ds_test.shuffle(shuffle, seed=seed_number)
+    # ds_test = ds_test.cache()
+    # ds_test = ds_test.repeat()
+    # ds_test = ds_test.shuffle(shuffle, seed=seed_number)
 
-    ds_train, ds_test = ds_train.batch(train_batch_size), ds_test.batch(test_batch_size)
+    ds_train, ds_test = ds_train.batch(train_batch_size), ds_test.batch(test_batch_size).repeat()
     ds_train, ds_test = tfds.as_numpy(ds_train), tfds.as_numpy(ds_test)
 
     meta = {
