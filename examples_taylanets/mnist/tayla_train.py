@@ -527,7 +527,8 @@ if __name__ == "__main__":
 
             # Compute the loss and accuracy of the of obtained logits
             lossval, accval = sep_losses(logits, _labels)
-            _, lossmidpoint_val, loss_rem = forward_loss(params, _images)
+            _, mconstr_loss = forward_loss(params, _images)
+            lossmidpoint_val, loss_rem = mconstr_loss[0], mconstr_loss[1]
 
             # Save the data
             pred_time.append(diff_time)
