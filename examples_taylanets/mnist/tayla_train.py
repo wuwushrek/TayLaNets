@@ -666,8 +666,6 @@ if __name__ == "__main__":
                 nfe_evol_train.append(nfe_train)
                 nfe_evol_test.append(nfe_test)
                 nfe_evol_odeint.append(nfe_odeint)
-                nfe_evol_train.append(nfe_train)
-                nfe_evol_test.append(nfe_test)
                 constr_mid_evol_train.append(contr_mid_train)
                 constr_mid_evol_test.append(contr_mid_test)
                 constr_rem_evol_train.append(contr_rem_train)

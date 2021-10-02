@@ -19,7 +19,9 @@ from jax.experimental.jet import jet
 from jax.flatten_util import ravel_pytree
 from jax.tree_util import tree_flatten
 
-from lib.ode import odeint, odeint_aux_one, odeint_sepaux, odeint_grid, odeint_grid_sepaux_one, odeint_grid_aux
+from lib_ode.ode import odeint, odeint_aux_one, odeint_sepaux, odeint_grid, odeint_grid_sepaux_one, odeint_grid_aux
+
+from tqdm.auto import tqdm
 
 float64 = False
 config.update("jax_enable_x64", float64)
@@ -42,6 +44,7 @@ parser.add_argument('--save_freq', type=int, default=3000)
 parser.add_argument('--dirname', type=str, default='tmp')
 parser.add_argument('--seed', type=int, default=0)
 parser.add_argument('--no_count_nfe', action="store_true")
+parser.add_argument('--validation_set', action="store_true")
 parser.add_argument('--load_ckpt', type=str, default=None)
 parser.add_argument('--ckpt_path', type=str, default="./ck.pt")
 parser.add_argument('--lam_fro', type=float, default=0)
@@ -68,7 +71,7 @@ rng = jax.random.PRNGKey(seed)
 dirname = parse_args.dirname
 count_nfe = not parse_args.no_count_nfe
 vmap = parse_args.vmap
-grid = False
+grid = True
 if grid:
     all_odeint = odeint_grid
     odeint_aux1 = odeint_grid_aux           # finlay trick w/ 1 augmented state
@@ -84,7 +87,8 @@ else:
         "atol": parse_args.atol,
         "rtol": parse_args.rtol
     }
-
+# # This is used to compute the number of function evaluations
+# all_odeint = odeint
 
 # some primitive functions
 def sigmoid(z):
@@ -382,7 +386,7 @@ def init_model():
         "post_ode": post_ode_params
     }, "nfe": nfe_fn
     }
-
+    @jax.jit
     def forward(key, params, _images):
         """
         Forward pass of the model.
@@ -478,49 +482,96 @@ def loss_fn(forward, params, images, labels, key):
         return loss_ + lam_fro * fro_reg_ + lam_kin * kin_reg_ + lam_w * weight_
 
 
-def init_data():
+# def init_data():
+#     """
+#     Initialize data.
+#     """
+#     (ds_train,), ds_info = tfds.load('mnist',
+#                                      split=['train'],
+#                                      shuffle_files=True,
+#                                      as_supervised=True,
+#                                      with_info=True,
+#                                      read_config=tfds.ReadConfig(shuffle_seed=parse_args.seed))
+
+#     num_train = ds_info.splits['train'].num_examples
+
+#     assert num_train % parse_args.batch_size == 0
+#     num_batches = num_train // parse_args.batch_size
+
+#     test_batch_size = parse_args.test_batch_size
+#     assert num_train % test_batch_size == 0
+#     num_test_batches = num_train // test_batch_size
+
+#     # make sure we always save the model on the last iteration
+#     assert num_batches * parse_args.nepochs % parse_args.save_freq == 0
+
+#     ds_train = ds_train.cache()
+#     ds_train = ds_train.repeat()
+#     ds_train = ds_train.shuffle(1000, seed=seed)
+#     ds_train, ds_train_eval = ds_train.batch(parse_args.batch_size), ds_train.batch(test_batch_size)
+#     ds_train, ds_train_eval = tfds.as_numpy(ds_train), tfds.as_numpy(ds_train_eval)
+
+#     meta = {
+#         "num_batches": num_batches,
+#         "num_test_batches": num_test_batches
+#     }
+
+#     return iter(ds_train), iter(ds_train_eval), meta
+
+def init_data(train_batch_size, test_batch_size, seed_number=0, shuffle=1000, validation_set=False):
     """
-    Initialize data.
+    Initialize data from tensorflow dataset
     """
-    (ds_train,), ds_info = tfds.load('mnist',
-                                     split=['train'],
+    # Import and cache the file in the current directory
+    ds_data, ds_info = tfds.load('mnist',
+                                     data_dir='./tensorflow_data/',
+                                     split=['train'] if not validation_set else ['train', 'test'],
                                      shuffle_files=True,
                                      as_supervised=True,
                                      with_info=True,
-                                     read_config=tfds.ReadConfig(shuffle_seed=parse_args.seed))
+                                     read_config=tfds.ReadConfig(shuffle_seed=seed_number, try_autocache=False))
+
+    if validation_set:
+        ds_train, ds_test = ds_data
+    else:
+        ds_train, ds_test = ds_data[0], ds_data[0]
 
     num_train = ds_info.splits['train'].num_examples
+    num_test = ds_info.splits['test'].num_examples if validation_set else num_train
 
-    assert num_train % parse_args.batch_size == 0
-    num_batches = num_train // parse_args.batch_size
+    assert num_train % train_batch_size == 0
+    num_train_batches = num_train // train_batch_size
 
-    test_batch_size = parse_args.test_batch_size
-    assert num_train % test_batch_size == 0
-    num_test_batches = num_train // test_batch_size
+    assert num_test % test_batch_size == 0
+    num_test_batches = num_test // test_batch_size
 
-    # make sure we always save the model on the last iteration
-    assert num_batches * parse_args.nepochs % parse_args.save_freq == 0
-
+    # Make the data set loopable mainly for testing loss evalutaion
     ds_train = ds_train.cache()
     ds_train = ds_train.repeat()
-    ds_train = ds_train.shuffle(1000, seed=seed)
-    ds_train, ds_train_eval = ds_train.batch(parse_args.batch_size), ds_train.batch(test_batch_size)
-    ds_train, ds_train_eval = tfds.as_numpy(ds_train), tfds.as_numpy(ds_train_eval)
+    ds_train = ds_train.shuffle(shuffle, seed=seed_number)
+
+    # ds_test = ds_test.cache()
+    # ds_test = ds_test.repeat()
+    # ds_test = ds_test.shuffle(shuffle, seed=seed_number)
+
+    ds_train, ds_test = ds_train.batch(train_batch_size), ds_test.batch(test_batch_size).repeat()
+    ds_train, ds_test = tfds.as_numpy(ds_train), tfds.as_numpy(ds_test)
 
     meta = {
-        "num_batches": num_batches,
+        "num_train_batches": num_train_batches,
         "num_test_batches": num_test_batches
     }
 
-    return iter(ds_train), iter(ds_train_eval), meta
+    # Return iter element on the training and testing set
+    return iter(ds_train), iter(ds_test), meta
 
 
 def run():
     """
     Run the experiment.
     """
-    ds_train, ds_train_eval, meta = init_data()
-    num_batches = meta["num_batches"]
+    ds_train, ds_train_eval, meta = init_data(parse_args.batch_size, parse_args.test_batch_size, seed_number=parse_args.seed, validation_set=parse_args.validation_set)
+    num_batches = meta["num_train_batches"]
     num_test_batches = meta["num_test_batches"]
 
     forward, model = init_model()
@@ -574,16 +625,21 @@ def run():
         acc_ = _acc_fn(logits, labels)
         return acc_, total_loss_, loss_, r2_reg_, fro_reg_, kin_reg_
 
-    def evaluate_loss(opt_state, _key, ds_train_eval):
+    def evaluate_loss(opt_state, _key, ds_train_eval, m_batches):
         """
         Convenience function for evaluating loss over train set in smaller batches.
         """
         sep_acc_, sep_loss_aug_, sep_loss_, \
-        sep_loss_r2_reg_, sep_loss_fro_reg_, sep_loss_kin_reg_, nfe = [], [], [], [], [], [], []
+        sep_loss_r2_reg_, sep_loss_fro_reg_, sep_loss_kin_reg_, nfe, predtime = [], [], [], [], [], [], [], []
 
-        for test_batch_num in range(num_test_batches):
+        for test_batch_num in tqdm(range(m_batches), leave=False):
             test_batch = next(ds_train_eval)
             _key, = jax.random.split(_key, num=1)
+
+            curr_time = time.time()
+            l, *_ = forward(_key, get_params(opt_state), test_batch[0])
+            l.block_until_ready()
+            m_predtime = time.time() - curr_time
 
             test_batch_acc_, test_batch_loss_aug_, test_batch_loss_, \
             test_batch_loss_r2_reg_, test_batch_loss_fro_reg_, test_batch_loss_kin_reg_ = \
@@ -600,6 +656,7 @@ def run():
             sep_loss_r2_reg_.append(test_batch_loss_r2_reg_)
             sep_loss_fro_reg_.append(test_batch_loss_fro_reg_)
             sep_loss_kin_reg_.append(test_batch_loss_kin_reg_)
+            predtime.append(m_predtime)
 
         sep_acc_ = jnp.array(sep_acc_)
         sep_loss_aug_ = jnp.array(sep_loss_aug_)
@@ -610,15 +667,40 @@ def run():
         nfe = jnp.array(nfe)
 
         return jnp.mean(sep_acc_), jnp.mean(sep_loss_aug_), jnp.mean(sep_loss_), \
-               jnp.mean(sep_loss_r2_reg_), jnp.mean(sep_loss_fro_reg_), jnp.mean(sep_loss_kin_reg_), jnp.mean(nfe)
+               jnp.mean(sep_loss_r2_reg_), jnp.mean(sep_loss_fro_reg_), jnp.mean(sep_loss_kin_reg_), jnp.mean(nfe), jnp.mean(jnp.array(predtime))
 
     itr = 0
     info = collections.defaultdict(dict)
 
     key = rng
 
-    for epoch in range(parse_args.nepochs):
-        for i in range(num_batches):
+    # Save the optimal loss_value obtained
+    opt_params_dict = None
+    opt_loss_train = None
+    opt_loss_test = None
+    opt_loss_odeint = None
+    opt_accuracy_test = None
+    opt_accuracy_train = None
+
+    total_compute_time = 0.0
+    loss_evol_train = list()
+    loss_evol_test = list()
+    train_accuracy = list()
+    test_accuracy = list()
+    test_accuracy_odeint = list()
+    predtime_evol_train = list()
+    predtime_evol_test = list()
+    compute_time_update = list()
+    nfe_evol_train = list()
+    nfe_evol_test = list()
+
+    # Open the info file to save the command line print
+    outfile = open(parse_args.dirname+'_info.txt', 'w')
+    outfile.write('////// Command line messages \n\n\n')
+    outfile.close()
+
+    for epoch in tqdm(range(parse_args.nepochs)):
+        for i in tqdm(range(num_batches), leave=False):
             batch = next(ds_train)
 
             key, = jax.random.split(key, num=1)
@@ -632,52 +714,117 @@ def run():
             update_start = time.time()
             opt_state = update(itr, opt_state, key, batch)
             tree_flatten(opt_state)[0][0].block_until_ready()
-            update_end = time.time()
-            time_str = "%d %.18f %d\n" % (itr, update_end - update_start, load_itr)
-            outfile = open("%s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_time.txt"
-                           % (dirname, reg, reg_type, lam, lam_fro, lam_kin), "a")
-            outfile.write(time_str)
-            outfile.close()
+            update_end = time.time() - update_start
+
+            # [LOG] Update the compute time data
+            compute_time_update.append(update_end)
+
+            # [LOG] Total elapsed compute time for update only
+            if itr >= 5: # Remove the first few steps due to jit compilation
+                total_compute_time += update_end
+
+            # time_str = "%d %.18f %d\n" % (itr, update_end - update_start, load_itr)
+            # outfile = open("%s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_time.txt"
+            #                % (dirname, reg, reg_type, lam, lam_fro, lam_kin), "a")
+            # outfile.write(time_str)
+            # outfile.close()
 
             if itr % parse_args.test_freq == 0:
-                acc_, loss_aug_, loss_, \
-                loss_r2_reg_, loss_fro_reg_, loss_kin_reg_, nfe_ = evaluate_loss(opt_state, key, ds_train_eval)
+                print_str_test = '--------------------------------- Eval on Test Data [epoch={} | num_batch = {}] ---------------------------------\n'.format(epoch, i)
+                tqdm.write(print_str_test)
+                acc_, loss_aug_, loss_, loss_r2_reg_, loss_fro_reg_, loss_kin_reg_, nfe_, predtime_ = evaluate_loss(opt_state, key, ds_train, meta['num_train_batches'])
+                # Compute the loss on the testing set if it is different from the training set
+                if parse_args.validation_set:
+                    acc_test_, loss_aug_test_, loss_test_, loss_r2_reg_test_, loss_fro_reg_test_, loss_kin_reg_test_, nfe_test_, predtime_test_ = evaluate_loss(opt_state, key, ds_train_eval, meta['num_test_batches'])
+                else:
+                    acc_test_, loss_aug_test_, loss_test_, loss_r2_reg_test_, loss_fro_reg_test_, loss_kin_reg_test_, nfe_test_, predtime_test_ = acc_, loss_aug_, loss_, loss_r2_reg_, loss_fro_reg_, loss_kin_reg_, nfe_, predtime_
 
-                print_str = 'Iter {:04d} | Total (Regularized) Loss {:.6f} | Loss {:.6f} | ' \
-                            'r {:.6f} | fro {:.6f} | kin {:.6f} | ' \
-                            'NFE {:.6f}'.format(itr, loss_aug_, loss_, loss_r2_reg_, loss_fro_reg_, loss_kin_reg_, nfe_)
+                # First time we have a value for the loss function
+                if opt_loss_train is None or opt_loss_test is None or (opt_accuracy_test < acc_test_):
+                    opt_loss_test = loss_test_
+                    opt_loss_train = loss_
+                    opt_accuracy_test = acc_test_
+                    opt_accuracy_train = acc_
+                    opt_nfe_test = nfe_test_
+                    opt_nfe_train = nfe_
+                    opt_params_dict = get_params(_opt_state)
 
-                print(print_str)
+                # Do some printing for result visualization
+                print_str = 'Iter {:05d} | Total Update Time {:.2f} | Update time {}\n\n'.format(itr, total_compute_time, update_end)
+                print_str += 'Loss Train {:.2e} | Loss Test {:.2e} | Total Loss Train {:.2e} | Total Loss Test {:.2e}\n'.format(loss_, loss_test_, loss_aug_, loss_aug_test_)
+                print_str += 'OPT Loss Train {:.2e} | OPT Loss Test {:.2e}\n\n'.format(opt_loss_train, opt_loss_test)               
+                print_str += 'Accur Train {:.2f} | Accur Test {:.2f} \n'.format(acc_*100, acc_test_*100)
+                print_str += 'OPT Accuracy Train {:.2f} | OPT Accuracy test {:.2f}\n\n'.format(opt_accuracy_train*100, opt_accuracy_test*100)
+                print_str += 'NFE Train {:.2f} | NFE Test {:.2f}\n'.format(nfe_train, nfe_test, nfe_odeint)
+                print_str += 'OPT NFE Train {:.2f} | OPT NFE Test {:.2f} \n\n'.format(opt_nfe_train, opt_nfe_test)
+                print_str += 'Pred Time train {:.2e} | Pred Time Test {:.2e}\n\n'.format(predtime_, predtime_test_)
+                tqdm.write(print_str)
 
-                outfile = open("%s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_info.txt"
-                               % (dirname, reg, reg_type, lam, lam_fro, lam_kin), "a")
-                outfile.write(print_str + "\n")
+                # Save all the obtained data
+                loss_evol_train.append(loss_)
+                loss_evol_test.append(loss_test_)
+                train_accuracy.append(acc_)
+                test_accuracy.append(acc_test_)
+                predtime_evol_train.append(predtime_)
+                predtime_evol_test.append(predtime_test_)
+                nfe_evol_train.append(nfe_)
+                nfe_evol_test.append(nfe_test_)
+
+                # Save these info in a file
+                outfile = open(parse_args.dirname+'_info.txt', 'a')
+                outfile.write(print_str_test)
+                outfile.write(print_str)
                 outfile.close()
 
-                info[itr]["acc"] = acc_
-                info[itr]["loss_aug"] = loss_aug_
-                info[itr]["loss"] = loss_
-                info[itr]["loss_r2_reg"] = loss_r2_reg_
-                info[itr]["loss_fro_reg"] = loss_fro_reg_
-                info[itr]["loss_kin_reg"] = loss_kin_reg_
-                info[itr]["nfe"] = nfe_
-
-            if itr % parse_args.save_freq == 0:
-                param_filename = "%s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_%d_fargs.pickle" \
-                             % (dirname, reg, reg_type, lam, lam_fro, lam_kin, itr)
-                fargs = get_params(opt_state)
-                outfile = open(param_filename, "wb")
-                pickle.dump(fargs, outfile)
+            if itr % parse_args.save_freq == 0 or (epoch == parse_args.nepochs-1 and i == meta['num_train_batches']-1):
+                m_dict_res = {'best_params' : opt_params_dict, 'total_update_time' : total_compute_time, 'updatetime_evol' : compute_time_update,
+                                'opt_loss_train' : opt_loss_train, 'opt_loss_test' : opt_loss_test, 
+                                'opt_accuracy_test' : opt_accuracy_test, 'opt_accuracy_train' : opt_accuracy_train,
+                                'opt_nfe_train' : opt_nfe_train, 'opt_nfe_test' : opt_nfe_test, 
+                                'loss_evol_train' : loss_, 'loss_evol_test' : loss_test_,
+                                'accuracy_evol_train' : train_accuracy, 'accuracy_evol_test' : test_accuracy,
+                                'predtime_evol_train' : predtime_evol_train, 'predtime_evol_test' : predtime_evol_test,
+                                'nfe_evol_train' : nfe_evol_train, 'nfe_evol_test' : nfe_evol_test,
+                                'training_parameters' : m_parameters_dict}
+                outfile = open(parse_args.dirname+'.pkl', "wb")
+                pickle.dump(m_dict_res, outfile)
                 outfile.close()
 
-    meta = {
-        "info": info,
-        "args": parse_args
-    }
-    outfile = open("%s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_%d_meta.pickle"
-                   % (dirname, reg, reg_type, lam, lam_fro, lam_kin, itr), "wb")
-    pickle.dump(meta, outfile)
-    outfile.close()
+                # print_str = 'Iter {:04d} | Total (Regularized) Loss {:.6f} | Loss {:.6f} | ' \
+                #             'r {:.6f} | fro {:.6f} | kin {:.6f} | ' \
+                #             'NFE {:.6f}'.format(itr, loss_aug_, loss_, loss_r2_reg_, loss_fro_reg_, loss_kin_reg_, nfe_)
+
+                # print(print_str)
+
+                # outfile = open("%s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_info.txt"
+                #                % (dirname, reg, reg_type, lam, lam_fro, lam_kin), "a")
+                # outfile.write(print_str + "\n")
+                # outfile.close()
+
+                # info[itr]["acc"] = acc_
+                # info[itr]["loss_aug"] = loss_aug_
+                # info[itr]["loss"] = loss_
+                # info[itr]["loss_r2_reg"] = loss_r2_reg_
+                # info[itr]["loss_fro_reg"] = loss_fro_reg_
+                # info[itr]["loss_kin_reg"] = loss_kin_reg_
+                # info[itr]["nfe"] = nfe_
+
+            # if itr % parse_args.save_freq == 0:
+            #     param_filename = "%s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_%d_fargs.pickle" \
+            #                  % (dirname, reg, reg_type, lam, lam_fro, lam_kin, itr)
+            #     fargs = get_params(opt_state)
+            #     outfile = open(param_filename, "wb")
+            #     pickle.dump(fargs, outfile)
+            #     outfile.close()
+
+    # meta = {
+    #     "info": info,
+    #     "args": parse_args
+    # }
+    # outfile = open("%s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_%d_meta.pickle"
+    #                % (dirname, reg, reg_type, lam, lam_fro, lam_kin, itr), "wb")
+    # pickle.dump(meta, outfile)
+    # outfile.close()
 
 
 if __name__ == "__main__":
