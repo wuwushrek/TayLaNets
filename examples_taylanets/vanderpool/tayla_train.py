@@ -234,7 +234,7 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
         if method == 'odeint_grid':
             nodeint_aux = lambda y0, ts, params: odeint_grid(lambda _y, _t, _params : dynamics_wrap(_params, _y), y0, ts, params, step_size=time_step)
         elif method == 'odeint':
-            nodeint_aux = lambda y0, ts, params: odeint(lambda _y, _t, _params : dynamics_wrap(_params, _y, _t), y0, ts, params, atol=args.atol, rtol=args.rtol)
+            nodeint_aux = lambda y0, ts, params: odeint(lambda _y, _t, _params : dynamics_wrap(_params, _y), y0, ts, params, atol=args.atol, rtol=args.rtol)
         else:
             raise Exception('{} not implemented yet !'.format(method))
         @jax.jit
@@ -572,10 +572,10 @@ if __name__ == "__main__":
 
                 # Do some printing for result visualization
                 print_str = 'Iter {:05d} | Total Update Time {:.2f} | Update time {}\n\n'.format(itr_count, total_compute_time, update_end)
-                print_str += 'Loss Train {:.2e} | Loss Test {:.2e} | Loss ODEINT {:.6f}\n'.format(loss_values_train, loss_values_test, loss_values_odeint)
+                print_str += 'Loss Train {:.2e} | Loss Test {:.2e} | Loss ODEINT {:.2e}\n'.format(loss_values_train, loss_values_test, loss_values_odeint)
                 print_str += 'OPT Loss Train {:.2e} | OPT Loss Test {:.2e} | OPT Loss ODEINT {:.2e}\n\n'.format(opt_loss_train, opt_loss_test, opt_loss_odeint)               
-                print_str += 'Accur Train {:.2f} | Accur Test {:.2f} | Accur ODEINT {:.2f}\n'.format(acc_values_train,acc_values_test, acc_values_odeint)
-                print_str += 'OPT Accuracy Train {:.2f} | OPT Accuracy test {:.2f} | OPT Accuracy odeint {:.2f}\n\n'.format(opt_accuracy_train, opt_accuracy_test, opt_accuracy_odeint)
+                print_str += 'Accur Train {:.2e} | Accur Test {:.2e} | Accur ODEINT {:.2e}\n'.format(acc_values_train,acc_values_test, acc_values_odeint)
+                print_str += 'OPT Accuracy Train {:.2e} | OPT Accuracy test {:.2e} | OPT Accuracy odeint {:.2f}\n\n'.format(opt_accuracy_train, opt_accuracy_test, opt_accuracy_odeint)
                 print_str += 'NFE Train {:.2f} | NFE Test {:.2f} | NFE ODEINT {:.2f}\n'.format(nfe_train, nfe_test, nfe_odeint)
                 print_str += 'OPT NFE Train {:.2f} | OPT NFE Test {:.2f} | OPT NFE ODEINT {:.2f}\n\n'.format(opt_nfe_train, opt_nfe_test, opt_nfe_odeint)
                 print_str += 'Pred Time train {:.2e} | Pred Time Test {:.2e} | Pred Time ODEINT {:.2e}\n\n'.format(pred_time_train, pred_time_test, pred_time_odeint)
