@@ -206,7 +206,7 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
             mse_state = jnp.mean(jnp.square(next_x - next_state_t))
             return next_x, jnp.array([midpoint_constr_val, rem_constr, mse_state])
         out_ode, m_constr = jax.lax.scan(rollout, state, next_state)
-        return out_ode, jnp.mean(m_constr, axis=0)
+        return out_ode, jnp.hstack((jnp.mean(m_constr, axis=0), jnp.array(m_constr[0,2])))
 
     @jax.jit
     def forward_nooverhead(params, state):
@@ -229,25 +229,24 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
 
 
     # Define a function to predict next state using fixed time step rk4
-    if method != 'tayla':
-        raise Exception('{} not implemented yet !'.format(method))
+    if method != 'tayla': # This doesn't implement the rollout idea
         from examples_taylanets.jinkelly_lib.lib_ode.ode import odeint_grid, odeint
         if method == 'odeint_grid':
-            nodeint_aux = lambda y0, ts, params: odeint_grid(lambda _y, _t, _params : dynamics_wrap(_params, _y, _t), y0, ts, params, step_size=time_step)
+            nodeint_aux = lambda y0, ts, params: odeint_grid(lambda _y, _t, _params : dynamics_wrap(_params, _y), y0, ts, params, step_size=time_step)
         elif method == 'odeint':
             nodeint_aux = lambda y0, ts, params: odeint(lambda _y, _t, _params : dynamics_wrap(_params, _y, _t), y0, ts, params, atol=args.atol, rtol=args.rtol)
         else:
             raise Exception('{} not implemented yet !'.format(method))
         @jax.jit
-        def forward(params, _images):
-            (_pre_ode_params, _dynamics_params, _post_ode_params) = params
-            out_pre_ode = pre_ode_fn(_pre_ode_params, _images)
-            out_ode, f_nfe = nodeint_aux(out_pre_ode, ts, _dynamics_params)
-            return post_ode_fn(_post_ode_params, out_ode[-1]), jnp.mean(f_nfe)
+        def forward(params, xstate):
+            (_dynamics_params, ) = params
+            out_ode, f_nfe = nodeint_aux(xstate, ts, _dynamics_params)
+            return out_ode[-1], jnp.mean(f_nfe)
         # @jax.jit
-        def loss_fun(params, _images, _labels):
-            logits, _ = forward(params, _images)
-            return _loss_fn(logits, _labels)
+        def loss_fun(params, xstate, xstatenext):
+            est_next, _ = forward(params, xstate)
+            return jnp.mean(jnp.square(est_next - xstatenext[0])
+                )
         m_forward = forward
         # Regroup the parameters of this entire module
         m_params = (dynamics_params, )
@@ -269,8 +268,8 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
         from examples_taylanets.jinkelly_lib.lib_ode.ode import odeint
         @jax.jit
         def nfe_fun(params, state):
-             m_dyn = lambda y, t : dynamics_wrap(params[0], y, t) 
-             out_ode, f_nfe = odeint(m_dyn, state, np.array([0.0,time_step]), atol=count_nfe[0], rtol=count_nfe[1])
+             m_dyn = lambda y, t : dynamics_wrap(params[0], y) 
+             out_ode, f_nfe = odeint(m_dyn, state, ts, atol=count_nfe[0], rtol=count_nfe[1])
              # -1 here is to take the last element in the integration scheme
              return out_ode[-1], jnp.mean(f_nfe)
 
@@ -398,7 +397,7 @@ if __name__ == "__main__":
                     init_model(rng, args.taylor_order, args.num_steps, batch_size=train_batch_size, 
                                 optim=opt, midpoint_layers=midpoint_hidden_layer_size, count_nfe=_count_nfe, 
                                 pen_midpoint=args.pen_midpoint, pen_remainder = args.pen_remainder, 
-                                approx_mid = args.no_midpoint, method= args.method)
+                                approx_mid = args.no_midpoint, method= args.method, time_step=meta['time_step'])
 
 
     # Initialize the state of the optimizer
@@ -461,11 +460,14 @@ if __name__ == "__main__":
         funEValTaylor = (args.taylor_order+1)*np.log((args.taylor_order+1)) # or should be order**2
 
         if is_taylor:
-            forward_fun_temp, forward_loss = forward_fun
+            forward_fun_temp, forward_loss_ = forward_fun
             fwd_fun = lambda params, xstate : (forward_fun_temp(params, xstate), funEValTaylor)
+            forward_loss = lambda params, xstate, xstatenext, other : forward_loss_(params, xstate, xstatenext)
         else:
             fwd_fun = forward_fun
-            forward_loss = lambda params, xstate : (0, (0, 0))
+            def forward_loss(params, xstate, xstatenext, other): 
+                mse_err = jnp.mean(jnp.square(xstatenext[0]-other['state']))
+                return (0, (0, 0, mse_err, mse_err))
 
         for _ in tqdm(range(num_iter),leave=False):
             # Extract the current data
@@ -477,10 +479,11 @@ if __name__ == "__main__":
             logits.block_until_ready()
             diff_time  = time.time() - curr_time
 
+            other = {'state' : logits}
             # Compute the loss and accuracy of the of obtained logits
-            _, mconstr_loss = forward_loss(params, xstate, xstatenext)
+            _, mconstr_loss = forward_loss(params, xstate, xstatenext, other)
             lossmidpoint_val, loss_rem = mconstr_loss[0], mconstr_loss[1]
-            lossval, accval = mconstr_loss[2], mconstr_loss[2]
+            lossval, accval = mconstr_loss[2], mconstr_loss[3]
 
             # Save the data
             pred_time.append(diff_time)
@@ -539,7 +542,7 @@ if __name__ == "__main__":
                      loss_values_odeint, acc_values_odeint, pred_time_odeint, nfe_odeint, _, _ = evaluate_loss(m_params, nfe_fun, (iter(ds_test_c_),iter(ds_test_c_next_)), meta['num_test_batches'], is_taylor=False)
 
                 # First time we have a value for the loss function
-                if opt_loss_train is None or opt_loss_test is None or (opt_accuracy_test < acc_values_test):
+                if opt_loss_train is None or opt_loss_test is None or (opt_loss_test > loss_values_test):
                     opt_loss_test = loss_values_test
                     opt_loss_train = loss_values_train
                     opt_loss_odeint = loss_values_odeint
@@ -571,8 +574,8 @@ if __name__ == "__main__":
                 print_str = 'Iter {:05d} | Total Update Time {:.2f} | Update time {}\n\n'.format(itr_count, total_compute_time, update_end)
                 print_str += 'Loss Train {:.2e} | Loss Test {:.2e} | Loss ODEINT {:.6f}\n'.format(loss_values_train, loss_values_test, loss_values_odeint)
                 print_str += 'OPT Loss Train {:.2e} | OPT Loss Test {:.2e} | OPT Loss ODEINT {:.2e}\n\n'.format(opt_loss_train, opt_loss_test, opt_loss_odeint)               
-                # print_str += 'Accur Train {:.2f} | Accur Test {:.2f} | Accur ODEINT {:.2f}\n'.format(acc_values_train*100,acc_values_test*100, acc_values_odeint*100)
-                # print_str += 'OPT Accuracy Train {:.2f} | OPT Accuracy test {:.2f} | OPT Accuracy odeint {:.2f}\n\n'.format(opt_accuracy_train*100, opt_accuracy_test*100, opt_accuracy_odeint*100)
+                print_str += 'Accur Train {:.2f} | Accur Test {:.2f} | Accur ODEINT {:.2f}\n'.format(acc_values_train,acc_values_test, acc_values_odeint)
+                print_str += 'OPT Accuracy Train {:.2f} | OPT Accuracy test {:.2f} | OPT Accuracy odeint {:.2f}\n\n'.format(opt_accuracy_train, opt_accuracy_test, opt_accuracy_odeint)
                 print_str += 'NFE Train {:.2f} | NFE Test {:.2f} | NFE ODEINT {:.2f}\n'.format(nfe_train, nfe_test, nfe_odeint)
                 print_str += 'OPT NFE Train {:.2f} | OPT NFE Test {:.2f} | OPT NFE ODEINT {:.2f}\n\n'.format(opt_nfe_train, opt_nfe_test, opt_nfe_odeint)
                 print_str += 'Pred Time train {:.2e} | Pred Time Test {:.2e} | Pred Time ODEINT {:.2e}\n\n'.format(pred_time_train, pred_time_test, pred_time_odeint)
