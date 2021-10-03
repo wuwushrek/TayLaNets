@@ -460,33 +460,23 @@ if __name__ == "__main__":
         funEValTaylor = (args.taylor_order+1)*np.log((args.taylor_order+1)) # or should be order**2
 
         if is_taylor:
-            forward_fun_temp, forward_loss_ = forward_fun
+            forward_fun_temp, forward_loss = forward_fun
             fwd_fun = lambda params, xstate : (forward_fun_temp(params, xstate), funEValTaylor)
-            forward_loss = lambda params, xstate, xstatenext, other : forward_loss_(params, xstate, xstatenext)
         else:
             fwd_fun = forward_fun
-            def forward_loss(params, xstate, xstatenext, other): 
-                mse_err = jnp.mean(jnp.square(xstatenext[0]-other['state']))
-                return (0, (0, 0, mse_err, mse_err))
+            def forward_loss(params, xstate, xstatenext): 
+                nState = fwd_fun(xstate)
+                mse_err = jnp.mean(jnp.square(xstatenext[0]-nState))
+                return (nState, (0, 0, mse_err, mse_err))
 
         for _ in tqdm(range(num_iter),leave=False):
             # Extract the current data
             xstate, xstatenext = next(data_eval[0]), next(data_eval[1])
 
-            x_init = xstate
-            for _ in range(xstatenext.shape[0]):
-                x_init,_ = fwd_fun(params, x_init)
-            accval = jnp.mean(jnp.square(x_init - xstatenext[-1]))
+            diff_time  = 0
 
-            # Call the ode to compute the logits
-            curr_time = time.time()
-            logits, number_fun_eval = fwd_fun(params, xstate)
-            logits.block_until_ready()
-            diff_time  = time.time() - curr_time
-
-            other = {'state' : logits}
             # Compute the loss and accuracy of the of obtained logits
-            _, mconstr_loss = forward_loss(params, xstate, xstatenext, other)
+            _, mconstr_loss = forward_loss(params, xstate, xstatenext)
             lossmidpoint_val, loss_rem = mconstr_loss[0], mconstr_loss[1]
             lossval, _ = mconstr_loss[2], mconstr_loss[3]
 
@@ -534,8 +524,9 @@ if __name__ == "__main__":
                 # Compute the loss function over the entire training set
                 print_str_test = '--------------------------------- Eval on Test Data [epoch={} | num_batch = {}] ---------------------------------\n'.format(epoch, i)
                 tqdm.write(print_str_test)
-                loss_values_train, acc_values_train, pred_time_train, nfe_train, contr_mid_train, contr_rem_train = evaluate_loss(m_params, forward_mixture, (iter(ds_train_),iter(ds_train_c_next_)), 
-                                                                                                                                    meta['num_train_batches'], is_taylor = args.method == 'tayla')
+                t_train, t_train_next, _ = shuffle_and_split(m_numpy_rng, ds_train_x, ds_train_xnext, meta['num_test_batches'])
+                loss_values_train, acc_values_train, pred_time_train, nfe_train, contr_mid_train, contr_rem_train = evaluate_loss(m_params, forward_mixture, (iter(t_train),iter(t_train_next)), 
+                                                                                                                                    meta['num_test_batches'], is_taylor = args.method == 'tayla')
                 # Compute the loss on the testing set if it is different from the training set
                 # if args.validation_set:
                 loss_values_test, acc_values_test, pred_time_test, nfe_test, contr_mid_test, contr_rem_test = evaluate_loss(m_params, forward_mixture, (iter(ds_test_c_),iter(ds_test_c_next_)), meta['num_test_batches'], is_taylor = args.method == 'tayla')
