@@ -55,8 +55,8 @@ parser.add_argument('--num_steps', type=int, default=2)
 parse_args = parser.parse_args()
 
 
-if not os.path.exists(parse_args.dirname):
-    os.makedirs(parse_args.dirname)
+# if not os.path.exists(parse_args.dirname):
+    # os.makedirs(parse_args.dirname)
 
 # set up config
 
@@ -71,7 +71,7 @@ rng = jax.random.PRNGKey(seed)
 dirname = parse_args.dirname
 count_nfe = not parse_args.no_count_nfe
 vmap = parse_args.vmap
-grid = True
+grid = False
 if grid:
     all_odeint = odeint_grid
     odeint_aux1 = odeint_grid_aux           # finlay trick w/ 1 augmented state
@@ -89,6 +89,8 @@ else:
     }
 # # This is used to compute the number of function evaluations
 # all_odeint = odeint
+# ode_kwargs_adap = {"atol": parse_args.atol, "rtol": parse_args.rtol}
+# ode_kwargs_adap = ode_kwargs
 
 # some primitive functions
 def sigmoid(z):
@@ -335,7 +337,7 @@ def init_model():
         _odeint(lambda y, t, eps, params: dynamics_wrap(y, t, params),
                 aug_dynamics, y0, ts, eps, params, **ode_kwargs)[0]
     all_nodeint = lambda y0, ts, eps, params: all_odeint(all_aug_dynamics,
-                                                          y0, ts, eps, params, **ode_kwargs)[0]
+                                                          y0, ts, eps, params, **ode_kwargs_adap)[0]
 
     def ode(params, out_pre_ode, eps):
         """
@@ -353,10 +355,10 @@ def init_model():
 
     if count_nfe:
         if vmap:
-            unreg_nodeint = jax.vmap(lambda y0, t, params: all_odeint(dynamics_wrap, y0, t, params, **ode_kwargs)[1],
+            unreg_nodeint = jax.vmap(lambda y0, t, params: all_odeint(dynamics_wrap, y0, t, params, **ode_kwargs_adap)[1],
                                      (0, None, None))
         else:
-            unreg_nodeint = lambda y0, t, params: all_odeint(dynamics_wrap, y0, t, params, **ode_kwargs)[1]
+            unreg_nodeint = lambda y0, t, params: all_odeint(dynamics_wrap, y0, t, params, **ode_kwargs_adap)[1]
 
         @jax.jit
         def nfe_fn(params, _images, _labels):
@@ -589,6 +591,7 @@ def run():
                                            lambda _: lax.cond(_epoch < 140, 1e-3, id, 1e-4, id)))
 
     opt_init, opt_update, get_params = optimizers.momentum(step_size=lr_schedule, mass=0.9)
+    # opt_init, opt_update, get_params = optimizers.adam(step_size=lr_schedule)
     if parse_args.load_ckpt:
         file_ = open(parse_args.load_ckpt, 'rb')
         init_params = pickle.load(file_)
@@ -693,6 +696,7 @@ def run():
     compute_time_update = list()
     nfe_evol_train = list()
     nfe_evol_test = list()
+    m_parameters_dict = vars(parse_args)
 
     # Open the info file to save the command line print
     outfile = open(parse_args.dirname+'_info.txt', 'w')
@@ -747,7 +751,7 @@ def run():
                     opt_accuracy_train = acc_
                     opt_nfe_test = nfe_test_
                     opt_nfe_train = nfe_
-                    opt_params_dict = get_params(_opt_state)
+                    opt_params_dict = get_params(opt_state)
 
                 # Do some printing for result visualization
                 print_str = 'Iter {:05d} | Total Update Time {:.2f} | Update time {}\n\n'.format(itr, total_compute_time, update_end)
@@ -755,7 +759,7 @@ def run():
                 print_str += 'OPT Loss Train {:.2e} | OPT Loss Test {:.2e}\n\n'.format(opt_loss_train, opt_loss_test)               
                 print_str += 'Accur Train {:.2f} | Accur Test {:.2f} \n'.format(acc_*100, acc_test_*100)
                 print_str += 'OPT Accuracy Train {:.2f} | OPT Accuracy test {:.2f}\n\n'.format(opt_accuracy_train*100, opt_accuracy_test*100)
-                print_str += 'NFE Train {:.2f} | NFE Test {:.2f}\n'.format(nfe_train, nfe_test, nfe_odeint)
+                print_str += 'NFE Train {:.2f} | NFE Test {:.2f}\n'.format(nfe_, nfe_test_)
                 print_str += 'OPT NFE Train {:.2f} | OPT NFE Test {:.2f} \n\n'.format(opt_nfe_train, opt_nfe_test)
                 print_str += 'Pred Time train {:.2e} | Pred Time Test {:.2e}\n\n'.format(predtime_, predtime_test_)
                 tqdm.write(print_str)

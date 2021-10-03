@@ -453,7 +453,8 @@ if __name__ == "__main__":
         chain_list.append(optax.add_decayed_weights(decay_weight))
 
     # Add scheduler for learning rate decrease --> Linear decrease given bt learning_rate_init and learning_rate_end
-    m_schedule = optax.linear_schedule(-args.lr_init, -args.lr_end, args.nepochs*meta['num_train_batches'])
+    # m_schedule = optax.linear_schedule(-args.lr_init, -args.lr_end, args.nepochs*meta['num_train_batches'])
+    m_schedule = optax.piecewise_constant_schedule(-args.lr_init, {50000 : 1e-1, 60000 : 0.5, 70000 : 0.5})
     chain_list.append(optax.scale_by_schedule(m_schedule))
 
     # Add gradient clipping if enable
