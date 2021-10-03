@@ -28,7 +28,7 @@ def system_ode(state, t=0, mu=4):
 	return np.hstack((xdot,ydot))
 
 
-def numeric_solution(state_init, time_step, traj_length, n_rollout, merge_traj=True):
+def numeric_solution(fun_ode, state_init, time_step, traj_length, n_rollout, merge_traj=True):
 	""" Solve the differential equation via sicpy solve (approximative solution)
 		:param state_init :	Set of initial state of the system
 		:param time_step :	The time step of the integration method
@@ -41,7 +41,7 @@ def numeric_solution(state_init, time_step, traj_length, n_rollout, merge_traj=T
 	res_rollout = [ [] for r in range(n_rollout)]
 	for i in tqdm(range(state_init.shape[0])):
 		x_init = state_init[0,:]
-		x_traj = scipy_ode(system_ode, x_init, t_indexes, full_output=False)
+		x_traj = scipy_ode(fun_ode, x_init, t_indexes, full_output=False)
 		if merge_traj:
 			res_state.extend(x_traj[:traj_length])
 		else:
@@ -80,21 +80,21 @@ def main_fn(path_config_file, extra_args={}):
 	m_init_train_x = jax.random.uniform(subkey, (num_traj_data, nstate), minval = jnp.array(xtrain_lb), maxval=jnp.array(xtrain_ub))
 
 	# Generate the training trajectories
-	xTrain, xNextTrain = numeric_solution(m_init_train_x, mdata_log.time_step, mdata_log.trajectory_length, mdata_log.n_rollout)
+	xTrain, xNextTrain = numeric_solution(system_ode, m_init_train_x, mdata_log.time_step, mdata_log.trajectory_length, mdata_log.n_rollout)
 
 	# Set of initial states testing 
 	m_rng, subkey = jax.random.split(m_rng)
 	m_init_test_x = jax.random.uniform(subkey, (num_data_test, nstate), minval = jnp.array(xtest_lb), maxval=jnp.array(xtest_ub))
 
 	# Generate the testing trajectories
-	xTest, xNextTest = numeric_solution(m_init_test_x, mdata_log.time_step, mdata_log.trajectory_length, mdata_log.n_rollout)
+	xTest, xNextTest = numeric_solution(system_ode, m_init_test_x, mdata_log.time_step, mdata_log.trajectory_length, mdata_log.n_rollout)
 
 	# Set of colocation poits
 	coloc_points = (None, None, None)
 	if num_data_colocation > 0:
 		m_rng, subkey = jax.random.split(m_rng)
 		m_init_coloc_x = jax.random.uniform(subkey, (num_data_colocation, nstate), minval = jnp.array(xtest_lb)-extra_noise_colocation , maxval=jnp.array(xtest_ub)+extra_noise_colocation)
-		xcoloc, _ = numeric_solution(m_init_coloc_x, mdata_log.time_step, mdata_log.trajectory_length, mdata_log.n_rollout)
+		xcoloc, _ = numeric_solution(system_ode, m_init_coloc_x, mdata_log.time_step, mdata_log.trajectory_length, mdata_log.n_rollout)
 		coloc_points = (xcoloc, None, None)
 
 	# Save the log using pickle
