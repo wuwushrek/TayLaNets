@@ -473,6 +473,11 @@ if __name__ == "__main__":
             # Extract the current data
             xstate, xstatenext = next(data_eval[0]), next(data_eval[1])
 
+            x_init = xstate
+            for _ in range(xstatenext.shape[0]):
+                x_init,_ = fwd_fun(params, x_init)
+            accval = jnp.mean(jnp.square(x_init - xstatenext[-1]))
+
             # Call the ode to compute the logits
             curr_time = time.time()
             logits, number_fun_eval = fwd_fun(params, xstate)
@@ -483,7 +488,7 @@ if __name__ == "__main__":
             # Compute the loss and accuracy of the of obtained logits
             _, mconstr_loss = forward_loss(params, xstate, xstatenext, other)
             lossmidpoint_val, loss_rem = mconstr_loss[0], mconstr_loss[1]
-            lossval, accval = mconstr_loss[2], mconstr_loss[3]
+            lossval, _ = mconstr_loss[2], mconstr_loss[3]
 
             # Save the data
             pred_time.append(diff_time)
@@ -532,10 +537,10 @@ if __name__ == "__main__":
                 loss_values_train, acc_values_train, pred_time_train, nfe_train, contr_mid_train, contr_rem_train = evaluate_loss(m_params, forward_mixture, (iter(ds_train_),iter(ds_train_c_next_)), 
                                                                                                                                     meta['num_train_batches'], is_taylor = args.method == 'tayla')
                 # Compute the loss on the testing set if it is different from the training set
-                if args.validation_set:
-                    loss_values_test, acc_values_test, pred_time_test, nfe_test, contr_mid_test, contr_rem_test = evaluate_loss(m_params, forward_mixture, (iter(ds_test_c_),iter(ds_test_c_next_)), meta['num_test_batches'], is_taylor = args.method == 'tayla')
-                else:
-                    loss_values_test, acc_values_test, pred_time_test, nfe_test, contr_mid_test, contr_rem_test = loss_values_train, acc_values_train, pred_time_train, nfe_train, contr_mid_train,contr_rem_train
+                # if args.validation_set:
+                loss_values_test, acc_values_test, pred_time_test, nfe_test, contr_mid_test, contr_rem_test = evaluate_loss(m_params, forward_mixture, (iter(ds_test_c_),iter(ds_test_c_next_)), meta['num_test_batches'], is_taylor = args.method == 'tayla')
+                # else:
+                #     loss_values_test, acc_values_test, pred_time_test, nfe_test, contr_mid_test, contr_rem_test = loss_values_train, acc_values_train, pred_time_train, nfe_train, contr_mid_train,contr_rem_train
                 # Compute the loss using odeint on the test data
                 loss_values_odeint, acc_values_odeint, pred_time_odeint, nfe_odeint = 0, 0, 0, 0
                 if nfe_fun is not None:
@@ -575,7 +580,7 @@ if __name__ == "__main__":
                 print_str += 'Loss Train {:.2e} | Loss Test {:.2e} | Loss ODEINT {:.2e}\n'.format(loss_values_train, loss_values_test, loss_values_odeint)
                 print_str += 'OPT Loss Train {:.2e} | OPT Loss Test {:.2e} | OPT Loss ODEINT {:.2e}\n\n'.format(opt_loss_train, opt_loss_test, opt_loss_odeint)               
                 print_str += 'Accur Train {:.2e} | Accur Test {:.2e} | Accur ODEINT {:.2e}\n'.format(acc_values_train,acc_values_test, acc_values_odeint)
-                print_str += 'OPT Accuracy Train {:.2e} | OPT Accuracy test {:.2e} | OPT Accuracy odeint {:.2f}\n\n'.format(opt_accuracy_train, opt_accuracy_test, opt_accuracy_odeint)
+                print_str += 'OPT Accuracy Train {:.2e} | OPT Accuracy test {:.2e} | OPT Accuracy odeint {:.2e}\n\n'.format(opt_accuracy_train, opt_accuracy_test, opt_accuracy_odeint)
                 print_str += 'NFE Train {:.2f} | NFE Test {:.2f} | NFE ODEINT {:.2f}\n'.format(nfe_train, nfe_test, nfe_odeint)
                 print_str += 'OPT NFE Train {:.2f} | OPT NFE Test {:.2f} | OPT NFE ODEINT {:.2f}\n\n'.format(opt_nfe_train, opt_nfe_test, opt_nfe_odeint)
                 print_str += 'Pred Time train {:.2e} | Pred Time Test {:.2e} | Pred Time ODEINT {:.2e}\n\n'.format(pred_time_train, pred_time_test, pred_time_odeint)
