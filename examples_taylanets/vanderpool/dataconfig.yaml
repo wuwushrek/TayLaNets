@@ -13,7 +13,7 @@ env_name: expo_dyn
 output_file: data/datatrain
 
 # The time step of the environment
-time_step: 0.01
+time_step: 0.1
 
 # Initial seed used by the random number generator for reproducibility
 seed: 10
@@ -22,13 +22,13 @@ seed: 10
 n_rollout: 10
 
 # The length of each trajectory
-trajectory_length: 10000
+trajectory_length: 1000
 
 # The number of trajectories for each set of data
-num_data_train: [10]
+num_data_train: [200]
 
 # The number of trajectories for the testing dataset validation
-num_data_test: 2
+num_data_test: 20
 
 # Colocation set points
 num_data_colocation: 0  # Number of colocation points  

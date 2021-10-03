@@ -39,7 +39,7 @@ class MLPDynamics(hk.Module):
         """
         super(MLPDynamics, self).__init__()
         self.dim = dim
-        self.model = hk.nets.MLP(output_sizes=(128,128, self.dim), b_init=jnp.zeros, activation=jax.numpy.tanh,
+        self.model = hk.nets.MLP(output_sizes=(256,256, self.dim), b_init=jnp.zeros, activation=jax.nn.sigmoid,
                                     w_init = hk.initializers.RandomUniform(minval=-0.1, maxval=0.1), )
 
     def __call__(self, x):
@@ -392,7 +392,7 @@ if __name__ == "__main__":
 
     # Build the solver
     _count_nfe = None if not args.count_odeint_nfe else (args.atol, args.rtol)
-    midpoint_hidden_layer_size = (24,24) # Hidden layers of the midpoint neural network
+    midpoint_hidden_layer_size = (32,32) # Hidden layers of the midpoint neural network
     m_params, forward_mixture, loss_fun, update, nfe_fun = \
                     init_model(rng, args.taylor_order, args.num_steps, batch_size=train_batch_size, 
                                 optim=opt, midpoint_layers=midpoint_hidden_layer_size, count_nfe=_count_nfe, 
@@ -460,14 +460,15 @@ if __name__ == "__main__":
         funEValTaylor = (args.taylor_order+1)*np.log((args.taylor_order+1)) # or should be order**2
 
         if is_taylor:
-            forward_fun_temp, forward_loss = forward_fun
+            forward_fun_temp, forward_loss_ = forward_fun
             fwd_fun = lambda params, xstate : (forward_fun_temp(params, xstate), funEValTaylor)
+            forward_loss = lambda params, xstate, xnextstate : (funEValTaylor, forward_loss_(params, xstate, xnextstate)[1])
         else:
             fwd_fun = forward_fun
             def forward_loss(params, xstate, xstatenext): 
-                nState = fwd_fun(xstate)
+                nState, nFunEval = fwd_fun(params, xstate)
                 mse_err = jnp.mean(jnp.square(xstatenext[0]-nState))
-                return (nState, (0, 0, mse_err, mse_err))
+                return (nFunEval, (0, 0, mse_err, mse_err))
 
         for _ in tqdm(range(num_iter),leave=False):
             # Extract the current data
@@ -476,9 +477,9 @@ if __name__ == "__main__":
             diff_time  = 0
 
             # Compute the loss and accuracy of the of obtained logits
-            _, mconstr_loss = forward_loss(params, xstate, xstatenext)
+            number_fun_eval, mconstr_loss = forward_loss(params, xstate, xstatenext)
             lossmidpoint_val, loss_rem = mconstr_loss[0], mconstr_loss[1]
-            lossval, _ = mconstr_loss[2], mconstr_loss[3]
+            lossval, accval = mconstr_loss[2], mconstr_loss[3]
 
             # Save the data
             pred_time.append(diff_time)

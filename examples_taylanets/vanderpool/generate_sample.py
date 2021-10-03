@@ -17,7 +17,7 @@ from scipy.integrate import odeint as scipy_ode
 import numpy as np
 
 
-def system_ode(state, t=0, mu=50):
+def system_ode(state, t=0, mu=4):
 	""" Define the ordinary differential equation of the system
 		:param state :	The current state of the system
 		:param t :	The current time instant
@@ -132,7 +132,7 @@ def main_fn(path_config_file, extra_args={}):
 	plt.ylabel(state_label[1])
 	plt.grid(True)
 
-	plt.show()
+	# plt.show()
 
 
 if __name__ == "__main__":
