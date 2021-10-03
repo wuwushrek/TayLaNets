@@ -17,7 +17,7 @@ from scipy.integrate import odeint as scipy_ode
 import numpy as np
 
 
-def system_ode(state, t=0, mu=4):
+def system_ode(state, t=0, mu=100):
 	""" Define the ordinary differential equation of the system
 		:param state :	The current state of the system
 		:param t :	The current time instant
