@@ -13,16 +13,16 @@ env_name: expo_dyn
 output_file: data/datatrain
 
 # The time step of the environment
-time_step: 0.1
+time_step: 0.01
 
 # Initial seed used by the random number generator for reproducibility
-seed: 42
+seed: 10
 
 # Save the number of rollout
-n_rollout: 4
+n_rollout: 10
 
 # The length of each trajectory
-trajectory_length: 3000
+trajectory_length: 10000
 
 # The number of trajectories for each set of data
 num_data_train: [10]
@@ -36,15 +36,15 @@ extra_noise_coloc: 0  # Add more noise to the states /control to different coloc
 
 # Sets from where to sample the initial states and the control to apply for learning
 # Bounds on the control input of the training set
-xtrain_lb: [-2.2, -0.2]
-xtrain_ub: [-1.8, 0.2]
+xtrain_lb: [-2, -0.5]
+xtrain_ub: [0, 0]
 # utrain_lb: -0.3
 # utrain_ub: 0.3
 
 # Bounds on the control input of the testing set --> Should be changed
 # according to the training set for demonstrating generalization
-xtest_lb: [-2.3, -0.3]
-xtest_ub: [-1.7, 0.3]
+xtest_lb: [-1, -0.5]
+xtest_ub: [1, 0.5]
 # utest_lb: -0.4
 # utest_ub: 0.4
 
