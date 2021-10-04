@@ -539,7 +539,7 @@ if __name__ == "__main__":
     rng = jax.random.PRNGKey(args.seed)
 
     # Initialize the MNIST data set
-    ds_train, ds_train_eval, meta = init_data(args.train_batch_size, args.test_batch_size, seed_number=args.seed, validation_set=args.validation_set)
+    ds_train, ds_train_eval, meta = init_data(args.train_batch_size, args.test_batch_size, seed_number=args.seed, validation_set=True)
     train_batch_size = args.train_batch_size
     test_batch_size = args.test_batch_size
     print('Meta information learning : \n', meta)
