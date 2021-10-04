@@ -783,13 +783,13 @@ if __name__ == "__main__":
 
             if itr_count % args.save_freq == 0 or (epoch == args.nepochs-1 and i == meta['num_train_batches']-1):
                 m_dict_res = {'best_params' : opt_params_dict, 'total_update_time' : total_compute_time, 'updatetime_evol' : compute_time_update,
-                                'opt_loss_train' : opt_loss_train, 'opt_loss_test' : opt_loss_test, 'opt_loss_odeint' : opt_loss_odeint, 
-                                'opt_nfe_train' : opt_nfe_train, 'opt_nfe_test' : opt_nfe_test, 'opt_nfe_odeint' : opt_nfe_odeint, 
-                                'loss_evol_train' : loss_evol_train, 'loss_evol_test' : loss_evol_test, 'loss_evol_odeint' : loss_evol_odeint, 
-                                'predtime_evol_train' : predtime_evol_train, 'predtime_evol_test' : predtime_evol_test, 'predtime_evol_odeint' : predtime_evol_odeint, 
-                                'nfe_evol_train' : nfe_evol_train, 'nfe_evol_test' : nfe_evol_test, 'nfe_evol_odeint' : nfe_evol_odeint, 
-                                'constr_mid_evol_train' : constr_mid_evol_train, 'constr_mid_evol_test' : constr_mid_evol_test, 'opt_constr_mid_evol_train' : opt_constr_mid_evol_train, 'opt_constr_mid_evol_test' : opt_constr_mid_evol_test,
-                                'constr_rem_evol_train' : constr_rem_evol_train, 'constr_rem_evol_test' : constr_rem_evol_test, 'opt_constr_rem_evol_train' : opt_constr_rem_evol_train, 'opt_constr_rem_evol_test' : opt_constr_rem_evol_test,
+                                'opt_loss_test' : opt_loss_test, 'opt_loss_odeint' : opt_loss_odeint, 
+                                'opt_nfe_test' : opt_nfe_test, 'opt_nfe_odeint' : opt_nfe_odeint, 
+                                'loss_evol_test' : loss_evol_test, 'loss_evol_odeint' : loss_evol_odeint, 
+                                'predtime_evol_test' : predtime_evol_test, 'predtime_evol_odeint' : predtime_evol_odeint, 
+                                'nfe_evol_test' : nfe_evol_test, 'nfe_evol_odeint' : nfe_evol_odeint, 
+                                'constr_mid_evol_test' : constr_mid_evol_test, 'opt_constr_mid_evol_test' : opt_constr_mid_evol_test,
+                                'constr_rem_evol_test' : constr_rem_evol_test, 'opt_constr_rem_evol_test' : opt_constr_rem_evol_test,
                                 'training_parameters' : m_parameters_dict}
                 outfile = open(args.dirname+'.pkl', "wb")
                 pickle.dump(m_dict_res, outfile)
