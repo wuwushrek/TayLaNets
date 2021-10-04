@@ -241,16 +241,8 @@ if __name__ == "__main__":
     # Store the data in each results file
     file_name = {'rk4' : 'results/rk4_ode.pkl', 'odeint' : 'results/odeint_ode.pkl', 'tayla' : 'results/tayla_ode.pkl'}
     m_best_params = dict()
+    dynamic_models = dict()
     problem_params = None
-
-    # results file
-    for name, f in file_name.items():
-        mFile = open(f, 'rb')
-        l_data = pickle.load(mFile)
-        mFile.close()
-        m_best_params[name]  = l_data['best_params']
-        problem_params = l_data['training_parameters']
-        print(problem_params,'\n\n')
 
     # Build the solver
     _count_nfe = None if not args.count_odeint_nfe else (args.atol, args.rtol)
@@ -259,20 +251,32 @@ if __name__ == "__main__":
                     init_model(rng, args.taylor_order, midpoint_layers=midpoint_hidden_layer_size, 
                                 approx_mid = args.no_midpoint, time_step=mdata_log.time_step)
 
-    # My dynamics
-    dynamic_models = dict()
-    for name, params in m_best_params.items():
-        dynamic_models[name] = jax.jit(lambda state, t : dynamics_wrap(params[0], state)) 
+    # results file
+    for name, f in file_name.items():
+        mFile = open(f, 'rb')
+        l_data = pickle.load(mFile)
+        mFile.close()
+        dynamic_models[name] =jax.jit( lambda state, t : dynamics_wrap(l_data['best_params'][0], state))
+        dynamic_models[name](jnp.array([0,1.0]), 0.0)
+        # m_best_params[name]  = copy.deepcopy(l_data['best_params'])
+        problem_params = l_data['training_parameters']
+        print(problem_params,'\n\n')
+
+    # # My dynamics
+    # dynamic_models = dict()
+    # for name, params in m_best_params.items():
+    #     print(name)
+    #     dynamic_models[name] =jax.jit( lambda state, t : dynamics_wrap(params[0], state))
 
     # Solve the dynamics using scipy
         # Set of initial states training 
     rng, subkey = jax.random.split(rng)
-    num_traj_data = 1
+    num_traj_data = 10
     m_init_train_x = jax.random.uniform(subkey, (num_traj_data, nstate), minval = jnp.array(xtest_lb), maxval=jnp.array(xtest_ub))
 
     # Generate the training trajectories
     integ_time_step = 0.01 # mdata_log.time_step
-    trajectory_length = 10000 # mdata_log.trajectory_length
+    trajectory_length = 1000 # mdata_log.trajectory_length
     trueTraj, _ = numeric_solution(system_ode, m_init_train_x, integ_time_step, trajectory_length, 1, merge_traj=False)
     rk4Traj, _ = numeric_solution(dynamic_models['rk4'], m_init_train_x, integ_time_step, trajectory_length, 1, merge_traj=False)
     odeint, _ = numeric_solution(dynamic_models['odeint'], m_init_train_x, integ_time_step, trajectory_length, 1, merge_traj=False)
