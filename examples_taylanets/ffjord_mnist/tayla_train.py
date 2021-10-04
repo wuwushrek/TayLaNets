@@ -527,7 +527,7 @@ if __name__ == "__main__":
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--count_odeint_nfe',  action="store_true")
     parser.add_argument('--method',  type=str, default='tayla') # choices odeint or odeint_grid
-    parser.add_argument('--validation_set',  action="store_true")
+    # parser.add_argument('--validation_set',  action="store_true")
     parser.add_argument('--no_midpoint',  action="store_false")
     parser.add_argument('--atol', type=float, default=1e-5)
     parser.add_argument('--rtol', type=float, default=1e-5)
@@ -706,29 +706,26 @@ if __name__ == "__main__":
                 # Compute the loss function over the entire training set
                 print_str_test = '--------------------------------- Eval on Test Data [epoch={} | num_batch = {}] ---------------------------------\n'.format(epoch, i)
                 tqdm.write(print_str_test)
-                loss_values_train, pred_time_train, nfe_train, contr_mid_train, contr_rem_train = evaluate_loss(m_params, forward_mixture, key, ds_train, meta['num_train_batches'], is_taylor = args.method == 'tayla')
+                # loss_values_train, pred_time_train, nfe_train, contr_mid_train, contr_rem_train = evaluate_loss(m_params, forward_mixture, key, ds_train, meta['num_train_batches'], is_taylor = args.method == 'tayla')
                 # Compute the loss on the testing set if it is different from the training set
-                if args.validation_set:
-                    loss_values_test, pred_time_test, nfe_test, contr_mid_test, contr_rem_test = evaluate_loss(m_params, forward_mixture, key, ds_train_eval, meta['num_test_batches'], is_taylor = args.method == 'tayla')
-                else:
-                    loss_values_test, pred_time_test, nfe_test, contr_mid_test, contr_rem_test = loss_values_train, acc_values_train, pred_time_train, nfe_train, contr_mid_train,contr_rem_train
+                loss_values_test, pred_time_test, nfe_test, contr_mid_test, contr_rem_test = evaluate_loss(m_params, forward_mixture, key, ds_train_eval, meta['num_test_batches'], is_taylor = args.method == 'tayla')
                 # Compute the loss using odeint on the test data
                 loss_values_odeint, pred_time_odeint, nfe_odeint = 0, 0, 0, 0
                 if nfe_fun is not None:
                      loss_values_odeint, pred_time_odeint, nfe_odeint, _, _ = evaluate_loss(m_params, nfe_fun, key, ds_train_eval, meta['num_test_batches'], is_taylor=False)
 
                 # First time we have a value for the loss function
-                if opt_loss_train is None or opt_loss_test is None or (opt_loss_test < loss_values_test):
+                if opt_loss_test is None or (opt_loss_test < loss_values_test):
                     opt_loss_test = loss_values_test
-                    opt_loss_train = loss_values_train
+                    # opt_loss_train = loss_values_train
                     opt_loss_odeint = loss_values_odeint
                     opt_nfe_test = nfe_test
-                    opt_nfe_train = nfe_train
+                    # opt_nfe_train = nfe_train
                     opt_nfe_odeint = nfe_odeint
                     opt_constr_mid_evol_test = contr_mid_test
-                    opt_constr_mid_evol_train = contr_mid_train
+                    # opt_constr_mid_evol_train = contr_mid_train
                     opt_constr_rem_evol_test = contr_rem_test
-                    opt_constr_rem_evol_train = contr_rem_train
+                    # opt_constr_rem_evol_train = contr_rem_train
                     opt_params_dict = m_params
                     iter_since_opt_test = epoch # Start counting the number of times we evaluate the learned model
 
@@ -745,28 +742,28 @@ if __name__ == "__main__":
 
                 # Do some printing for result visualization
                 print_str = 'Iter {:05d} | Total Update Time {:.2f} | Update time {}\n\n'.format(itr_count, total_compute_time, update_end)
-                print_str += 'Loss Train {:.2e} | Loss Test {:.2e} | Loss ODEINT {:.6f}\n'.format(loss_values_train, loss_values_test, loss_values_odeint)
-                print_str += 'OPT Loss Train {:.2e} | OPT Loss Test {:.2e} | OPT Loss ODEINT {:.2e}\n\n'.format(opt_loss_train, opt_loss_test, opt_loss_odeint)               
-                print_str += 'NFE Train {:.2f} | NFE Test {:.2f} | NFE ODEINT {:.2f}\n'.format(nfe_train, nfe_test, nfe_odeint)
-                print_str += 'OPT NFE Train {:.2f} | OPT NFE Test {:.2f} | OPT NFE ODEINT {:.2f}\n\n'.format(opt_nfe_train, opt_nfe_test, opt_nfe_odeint)
-                print_str += 'Pred Time train {:.2e} | Pred Time Test {:.2e} | Pred Time ODEINT {:.2e}\n\n'.format(pred_time_train, pred_time_test, pred_time_odeint)
-                print_str += 'Midpoint Constr train {:.2e} | Midpoint Constr Test {:.2e} | OPT Midpoint Constr train {:.2e} | OPT Midpoint Constr Test {:.2e} \n\n'.format(contr_mid_train, contr_mid_test, opt_constr_mid_evol_train, opt_constr_mid_evol_test)
-                print_str += 'Remainder Constr train {:.2e} | Remainder Constr Test {:.2e} | OPT Remainder Constr train {:.2e} | OPT Remainder Constr Test {:.2e} \n\n'.format(contr_rem_train, contr_rem_test, opt_constr_rem_evol_train, opt_constr_rem_evol_test)
+                print_str += 'Loss Test {:.2e} | Loss ODEINT {:.6f}\n'.format(loss_values_test, loss_values_odeint)
+                print_str += 'OPT Loss Test {:.2e} | OPT Loss ODEINT {:.2e}\n\n'.format(opt_loss_test, opt_loss_odeint)               
+                print_str += 'NFE Test {:.2f} | NFE ODEINT {:.2f}\n'.format(nfe_test, nfe_odeint)
+                print_str += 'OPT NFE Test {:.2f} | OPT NFE ODEINT {:.2f}\n\n'.format(opt_nfe_test, opt_nfe_odeint)
+                print_str += 'Pred Time Test {:.2e} | Pred Time ODEINT {:.2e}\n\n'.format(pred_time_test, pred_time_odeint)
+                print_str += 'Midpoint Constr Test {:.2e} | OPT Midpoint Constr Test {:.2e} \n\n'.format(contr_mid_test, opt_constr_mid_evol_test)
+                print_str += 'Remainder Constr Test {:.2e} | OPT Remainder Constr Test {:.2e} \n\n'.format(contr_rem_test, opt_constr_rem_evol_test)
                 tqdm.write(print_str)
 
                 # Save all the obtained data
-                loss_evol_train.append(loss_values_train)
+                # loss_evol_train.append(loss_values_train)
                 loss_evol_test.append(loss_values_test)
                 loss_evol_odeint.append(loss_values_odeint)
-                predtime_evol_train.append(pred_time_train)
+                # predtime_evol_train.append(pred_time_train)
                 predtime_evol_test.append(pred_time_test)
                 predtime_evol_odeint.append(pred_time_odeint)
-                nfe_evol_train.append(nfe_train)
+                # nfe_evol_train.append(nfe_train)
                 nfe_evol_test.append(nfe_test)
                 nfe_evol_odeint.append(nfe_odeint)
-                constr_mid_evol_train.append(contr_mid_train)
+                # constr_mid_evol_train.append(contr_mid_train)
                 constr_mid_evol_test.append(contr_mid_test)
-                constr_rem_evol_train.append(contr_rem_train)
+                # constr_rem_evol_train.append(contr_rem_train)
                 constr_rem_evol_test.append(contr_rem_test)
 
                 # Save these info in a file
