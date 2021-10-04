@@ -292,6 +292,16 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
         div = jnp.sum(jnp.reshape(eps_dy * eps, (y.shape[0], -1)), axis=1, keepdims=True)
         return flatten_image(dy), -div
 
+    def ffjord_dynamics_nfe(yp, t, eps, params):
+        """
+        Dynamics of augmented ffjord state.
+        """
+        y, p = yp
+        f = lambda y: dynamics_wrap(y, t, params)
+        dy, eps_dy = jax.jvp(f, (y,), (eps,))
+        div = jnp.sum(jnp.reshape(eps_dy * eps, (y.shape[0], -1)), axis=1, keepdims=True)
+        return dy, -div
+
     # Define the ODE prediction function
     inv_m_fact = jet.fact(jnp.array([i+1 for i in range(taylor_order+1)]))
     inv_m_fact = 1.0 / inv_m_fact
@@ -438,8 +448,7 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
     if count_nfe is not None:
         from examples_taylanets.jinkelly_lib.lib_ode.ode import odeint
         def dyn_aux(z_px, t, eps, params):
-            z, delta_logp = z_px
-            dz, dlogp = ffjord_dynamics(z, t, eps, params)
+            dz, dlogp = ffjord_dynamics(z_px, t, eps, params)
             return z, dlogp
 
         @jax.jit
