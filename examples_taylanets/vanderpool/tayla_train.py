@@ -60,7 +60,7 @@ class Midpoint(hk.Module):
         # Initialize the weight to be randomly close to zero
         self.model = hk.nets.MLP(output_sizes=(*output_sizes, dim), 
                         w_init=hk.initializers.RandomUniform(minval=0, maxval=0), 
-                        b_init=jnp.zeros, activation=jax.numpy.tanh)
+                        b_init=jnp.zeros, activation=jax.nn.sigmoid)
 
     def __call__(self, xt):
     	if self.approx_mid:
@@ -392,7 +392,7 @@ if __name__ == "__main__":
 
     # Build the solver
     _count_nfe = None if not args.count_odeint_nfe else (args.atol, args.rtol)
-    midpoint_hidden_layer_size = (32,32) # Hidden layers of the midpoint neural network
+    midpoint_hidden_layer_size = (16,16) # Hidden layers of the midpoint neural network
     m_params, forward_mixture, loss_fun, update, nfe_fun = \
                     init_model(rng, args.taylor_order, args.num_steps, batch_size=train_batch_size, 
                                 optim=opt, midpoint_layers=midpoint_hidden_layer_size, count_nfe=_count_nfe, 
