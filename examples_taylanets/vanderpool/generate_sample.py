@@ -17,7 +17,7 @@ from scipy.integrate import odeint as scipy_ode
 import numpy as np
 
 
-def system_ode(state, t=0, mu=100):
+def system_ode(state, t=0, mu=50):
 	""" Define the ordinary differential equation of the system
 		:param state :	The current state of the system
 		:param t :	The current time instant
@@ -40,7 +40,7 @@ def numeric_solution(fun_ode, state_init, time_step, traj_length, n_rollout, mer
 	res_state = []
 	res_rollout = [ [] for r in range(n_rollout)]
 	for i in tqdm(range(state_init.shape[0])):
-		x_init = state_init[0,:]
+		x_init = state_init[i]
 		x_traj = scipy_ode(fun_ode, x_init, t_indexes, full_output=False)
 		if merge_traj:
 			res_state.extend(x_traj[:traj_length])
@@ -107,7 +107,7 @@ def main_fn(path_config_file, extra_args={}):
 
 	# Do some plotting for illustration
 	import matplotlib.pyplot as plt
-	n_traj = 1
+	n_traj = 5
 	indx_list = [i for i in range(n_traj)]
 	traj_set_list = list()
 	for indx_trajectory in indx_list:
@@ -132,7 +132,7 @@ def main_fn(path_config_file, extra_args={}):
 	plt.ylabel(state_label[1])
 	plt.grid(True)
 
-	# plt.show()
+	plt.show()
 
 
 if __name__ == "__main__":
