@@ -297,7 +297,7 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
         Dynamics of augmented ffjord state.
         """
         y, p = yp
-        f = lambda y: dynamics_wrap(y, t, params)
+        f = lambda y: dynamics_wrap(params, y, t)
         dy, eps_dy = jax.jvp(f, (y,), (eps,))
         div = jnp.sum(jnp.reshape(eps_dy * eps, (y.shape[0], -1)), axis=1, keepdims=True)
         return dy, -div
@@ -448,8 +448,8 @@ def init_model(rng, taylor_order, number_step, batch_size=1, optim=None,
     if count_nfe is not None:
         from examples_taylanets.jinkelly_lib.lib_ode.ode import odeint
         def dyn_aux(z_px, t, eps, params):
-            dz, dlogp = ffjord_dynamics(z_px, t, eps, params)
-            return z, dlogp
+            dz, dlogp = ffjord_dynamics_nfe(z_px, t, eps, params)
+            return dz, dlogp
 
         @jax.jit
         def nfe_fun(key, params, _images):
