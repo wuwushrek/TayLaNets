@@ -635,7 +635,7 @@ if __name__ == "__main__":
                 x, p, l = forward_loss_(_key, params, _images)
                 return x, p, funEValTaylor, l
         else:
-            forward_loss = (lambda _key, _images : forward_fun(_key, params, _images), (0,0))
+            forward_loss = lambda _key, _images : (*forward_fun(_key, params, _images), (0,0))
 
         for _ in tqdm(range(num_iter),leave=False):
             _key, _key2 = jax.random.split(key, num=2)
@@ -710,7 +710,7 @@ if __name__ == "__main__":
                 # Compute the loss on the testing set if it is different from the training set
                 loss_values_test, pred_time_test, nfe_test, contr_mid_test, contr_rem_test = evaluate_loss(m_params, forward_mixture, key, ds_train_eval, meta['num_test_batches'], is_taylor = args.method == 'tayla')
                 # Compute the loss using odeint on the test data
-                loss_values_odeint, pred_time_odeint, nfe_odeint = 0, 0, 0, 0
+                loss_values_odeint, pred_time_odeint, nfe_odeint = 0, 0, 0
                 if nfe_fun is not None:
                      loss_values_odeint, pred_time_odeint, nfe_odeint, _, _ = evaluate_loss(m_params, nfe_fun, key, ds_train_eval, meta['num_test_batches'], is_taylor=False)
 
