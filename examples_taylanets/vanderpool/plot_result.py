@@ -267,11 +267,11 @@ if __name__ == "__main__":
         # Set of initial states training 
     rng, subkey = jax.random.split(rng)
     num_traj_data = 1
-    m_init_train_x = jax.random.uniform(subkey, (num_traj_data, nstate), minval = jnp.array(xtest_lb), maxval=jnp.array(xtest_ub))
+    m_init_train_x = jax.random.uniform(subkey, (num_traj_data, nstate), minval = jnp.array(xtrain_lb), maxval=jnp.array(xtrain_ub))
 
     # Generate the training trajectories
-    integ_time_step = 0.01 # mdata_log.time_step
-    trajectory_length = 10000 # mdata_log.trajectory_length
+    integ_time_step = 0.001 # mdata_log.time_step
+    trajectory_length = 100000 # mdata_log.trajectory_length
     trueTraj, _ = numeric_solution(system_ode, m_init_train_x, integ_time_step, trajectory_length, 1, merge_traj=False)
     rk4Traj, _ = numeric_solution(dynamic_models['rk4'], m_init_train_x, integ_time_step, trajectory_length, 1, merge_traj=False)
     odeint, _ = numeric_solution(dynamic_models['odeint'], m_init_train_x, integ_time_step, trajectory_length, 1, merge_traj=False)

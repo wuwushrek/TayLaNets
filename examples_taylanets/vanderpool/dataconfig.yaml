@@ -2,18 +2,13 @@
 # This example contains the full set of allowed parameters --> Some of them can be ignored
 
 # The name of the environment to load
-env_name: expo_dyn
-
-# # Extra arguments to build the environment
-# env_extra_args:
-#   action_repeat: 1          # This is an integer >=1 that changes dt in each environment
-#   episode_length: 1000      # Determine when the episode ends
+env_name: vanderpool
 
 # File used to save the dataset: Without any extension
 output_file: data/datatrain
 
 # The time step of the environment
-time_step: 0.01
+time_step: 0.04
 
 # Initial seed used by the random number generator for reproducibility
 seed: 100
@@ -22,13 +17,13 @@ seed: 100
 n_rollout: 1
 
 # The length of each trajectory
-trajectory_length: 1000
+trajectory_length: 100
 
 # The number of trajectories for each set of data
-num_data_train: [400]
+num_data_train: [20]
 
 # The number of trajectories for the testing dataset validation
-num_data_test: 20
+num_data_test: 10
 
 # Colocation set points
 num_data_colocation: 0  # Number of colocation points  
@@ -36,26 +31,14 @@ extra_noise_coloc: 0  # Add more noise to the states /control to different coloc
 
 # Sets from where to sample the initial states and the control to apply for learning
 # Bounds on the control input of the training set
-xtrain_lb: [-2, -0.5]
-xtrain_ub: [-1.8, -0.3]
+xtrain_lb: [-0.4, -1]
+xtrain_ub: [0.4, 1]
 # utrain_lb: -0.3
 # utrain_ub: 0.3
 
 # Bounds on the control input of the testing set --> Should be changed
 # according to the training set for demonstrating generalization
-xtest_lb: [-1.9, -0.5]
-xtest_ub: [-1.8, -0.4]
-# utest_lb: -0.4
-# utest_ub: 0.4
-
-# Others attribute that can be used in the code
-# others:
-#   policy:
-#     file: ./reacher_brax/policy_learned.pkl
-#     n_obs: 11
-#     n_act: 2
-#     normalize: True
-#     policy: ppo
-#     # noise_train: 0.1
-#     # noise_test: 0.3
-#   save_video: True
+xtest_lb: [-0.3, -1]
+xtest_ub: [0.3, 1]
+# utest_lb: -0.3
+# utest_ub: 0.3

@@ -13,6 +13,7 @@
 # limitations under the License.
 
 # Note: file has been modified.
+# https://github.com/jacobjinkelly/easy-neural-ode
 
 """JAX-based Dormand-Prince ODE integration with adaptive stepsize.
 
@@ -24,7 +25,6 @@ stepsize integration methods.
 Adjoint algorithm based on Appendix C of https://arxiv.org/pdf/1806.07366.pdf
 """
 
-# This code is taken as it is from https://github.com/jacobjinkelly/easy-neural-ode.git
 
 from functools import partial
 import operator as op

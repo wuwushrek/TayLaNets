@@ -139,3 +139,6 @@ dmypy.json
 *.tex
 *.npy
 *.html
+*.txt
+*.svg
+*.png

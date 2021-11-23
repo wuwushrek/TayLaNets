@@ -17,15 +17,15 @@ from scipy.integrate import odeint as scipy_ode
 import numpy as np
 
 
-def system_ode(state, t=0, mu=50):
+def system_ode(state, t=0, mu=8):
 	""" Define the ordinary differential equation of the system
 		:param state :	The current state of the system
 		:param t :	The current time instant
 	"""
 	x, y = state[...,0], state[...,1] 
 	xdot = y
-	ydot = mu * (1 - np.square(x)) * y - x
-	return np.hstack((xdot,ydot))
+	ydot = mu * (1 - jnp.square(x)) * y - x
+	return jnp.hstack((xdot,ydot))
 
 
 def numeric_solution(fun_ode, state_init, time_step, traj_length, n_rollout, merge_traj=True):
@@ -51,7 +51,7 @@ def numeric_solution(fun_ode, state_init, time_step, traj_length, n_rollout, mer
 	return res_state, res_rollout
 
 
-def main_fn(path_config_file, extra_args={}):
+def main_fn(path_config_file, extra_args={}, coeff_dur_test=1):
 	""" Root function in the main file.
 		:param path_config_file : Path to the adequate yaml file
 		:param extra_args : Extra argument from the command line
@@ -87,15 +87,11 @@ def main_fn(path_config_file, extra_args={}):
 	m_init_test_x = jax.random.uniform(subkey, (num_data_test, nstate), minval = jnp.array(xtest_lb), maxval=jnp.array(xtest_ub))
 
 	# Generate the testing trajectories
-	xTest, xNextTest = numeric_solution(system_ode, m_init_test_x, mdata_log.time_step, mdata_log.trajectory_length, mdata_log.n_rollout)
+	test_traj_length = mdata_log.trajectory_length*coeff_dur_test
+	xTest, xNextTest = numeric_solution(system_ode, m_init_test_x, mdata_log.time_step, test_traj_length, mdata_log.n_rollout)
 
 	# Set of colocation poits
 	coloc_points = (None, None, None)
-	if num_data_colocation > 0:
-		m_rng, subkey = jax.random.split(m_rng)
-		m_init_coloc_x = jax.random.uniform(subkey, (num_data_colocation, nstate), minval = jnp.array(xtest_lb)-extra_noise_colocation , maxval=jnp.array(xtest_ub)+extra_noise_colocation)
-		xcoloc, _ = numeric_solution(system_ode, m_init_coloc_x, mdata_log.time_step, mdata_log.trajectory_length, mdata_log.n_rollout)
-		coloc_points = (xcoloc, None, None)
 
 	# Save the log using pickle
 	mSampleLog = SampleLog(xTrain, xNextTrain, None, None, mdata_log.xu_train_lb, mdata_log.xu_train_ub, xTest, xNextTest, None, None, mdata_log.xu_test_lb, mdata_log.xu_test_ub, 
@@ -107,61 +103,61 @@ def main_fn(path_config_file, extra_args={}):
 
 	# Do some plotting for illustration
 	import matplotlib.pyplot as plt
-	n_traj = 5
+
+	n_traj = num_traj_data
 	indx_list = [i for i in range(n_traj)]
 	traj_set_list = list()
 	for indx_trajectory in indx_list:
 		traj_set_list.append(np.array(xTrain[indx_trajectory*mdata_log.trajectory_length:(indx_trajectory+1)*mdata_log.trajectory_length]))
+
+	n_traj_test = num_data_test
+	indx_list_test = [i for i in range(n_traj_test)]
+	trajt_set_list = list()
+	for indx_trajectory in indx_list_test:
+		trajt_set_list.append(np.array(xTest[indx_trajectory*(test_traj_length):(indx_trajectory+1)*(test_traj_length)]))
+
 	time_index = [ i * mdata_log.time_step for i in range(mdata_log.trajectory_length)]
+	time_index_test = [ i * mdata_log.time_step for i in range(test_traj_length)]
 	
 	# Do some plotting
 	state_label = [r'$x_{0}$', r'$x_{1}$']
 	for i in range(nstate):
 		plt.figure()
+		for traj_set in trajt_set_list:
+			plt.plot(time_index_test, traj_set[:,i], color='r', linewidth=2)
 		for traj_set in traj_set_list:
-			plt.plot(time_index, traj_set[:,i], linewidth=2)
+			plt.plot(time_index, traj_set[:,i], color='b', linewidth=2)
 		plt.xlabel('Time (s)')
 		plt.ylabel(state_label[i])
 		plt.grid(True)
+		plt.savefig('data/evol_x{}.svg'.format(i), dpi=300)
 
 	# 2D dimensional plot
 	plt.figure()
+	for traj_set in trajt_set_list:
+		plt.plot(traj_set[:,0], traj_set[:,1], color='r', linewidth=1, zorder=1)
 	for traj_set in traj_set_list:
-		plt.plot(traj_set[:,0], traj_set[:,1], linewidth=2)
+		plt.scatter(traj_set[:,0], traj_set[:,1], color='b', s=6, zorder=2)
 	plt.xlabel(state_label[0])
 	plt.ylabel(state_label[1])
 	plt.grid(True)
-
+	plt.savefig('data/xy_plane.svg', dpi=300)
 	plt.show()
 
 
 if __name__ == "__main__":
 	import time
 	import argparse
-	# python generate_sample.py --cfg reacher_brax/dataset_gen.yaml --output_file reacher_brax/testdata --seed 101 --disable_substep 0 --save_video 1
 	# Command line argument for setting parameters
+	# python generate_sample.py --dt 0.04
 	parser = argparse.ArgumentParser()
-	parser.add_argument('--cfg', required=True, type=str, help='yaml configuration file for training/testing information: see reacher_cfg1.yaml for more information')
-	parser.add_argument('--output_file', type=str, default='', help='File to save the generated trajectories')
-	parser.add_argument('--n_rollout', type=int, default=0, help='Number of rollout step')
-	parser.add_argument('--seed', type=int, default=-1, help='The seed for the trajetcories generation')
-	parser.add_argument('--trajectory_length', type=int, default=-1, help='Length of each trajectory')
-	parser.add_argument('--num_data_train', nargs='+', help='A list containing the number of trajectories for each training set')
-	parser.add_argument('--num_data_test', type=int, default=0, help='A list containing the number of trajectories for each testing set')
+	parser.add_argument('--dt', type=float, default=0.01)
 	args = parser.parse_args()
 	args = parser.parse_args()
-	m_config_aux = {'cfg' : args.cfg}
-	if args.output_file != '':
-		m_config_aux['output_file']  = args.output_file
-	if args.n_rollout > 0:
-		m_config_aux['n_rollout']  = args.n_rollout
-	if args.seed >= 0:
-		m_config_aux['seed']  = args.seed
-	if args.trajectory_length > 0:
-		m_config_aux['trajectory_length']  = args.trajectory_length
-	if args.num_data_test > 0:
-		m_config_aux['num_data_test'] = args.num_data_test
-	if args.num_data_train is not None and len(args.num_data_train) > 0:
-		m_config_aux['num_data_train'] = [int(val) for val in args.num_data_train]
-	# print(m_config_aux)
-	main_fn(args.cfg, m_config_aux)
+	traj_duration = 5 # Duration of the trajectory
+	num_trajectory  = [40] # Number of trajectories
+	num_data_test = 10
+	m_config_aux = {'cfg' : 'dataconfig.yaml', 'output_file' : 'data/vanderpool_dt{}'.format(args.dt), 'n_rollout' : 1, 
+						'seed' : 201, 'time_step' : args.dt, 'trajectory_length' : int(float(traj_duration) / args.dt), 
+						'num_data_train' : num_trajectory, 'num_data_test' : num_data_test}
+	main_fn(m_config_aux['cfg'], m_config_aux, coeff_dur_test=1) # coeff_dur_test : The test data is expanded on coeff_dur_test * traj_duration
