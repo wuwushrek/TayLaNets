@@ -299,7 +299,7 @@ def hypersolver(dyn_fn, time_step, order=1, n_step=1):
 
 
 # ODE integration with adjoint method for reverse differentiation
-from ode import odeint, odeint_grid
+from .ode import odeint, odeint_grid
 def odeint_rev(dyn_fn, time_step, n_step=1, **args):
     """ Provide a function to predict the state values at future time step using fixed rk4 methods with memory efficient
         reverse autodiff, and an adaptive time step integration
