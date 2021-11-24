@@ -17,15 +17,56 @@ from scipy.integrate import odeint as scipy_ode
 import numpy as np
 
 
-def system_ode(state, t=0, mu=8):
+# Dynamics static parameters
+# \dot{x} =  A x
+DiagMat = np.diag([-1000.0, -1.0])
+eigVect1 = np.array([3.0, 1.0])
+eigVect2 = np.array([1.0, -2.0])
+PassMat = np.array([eigVect1, eigVect2])
+A = np.linalg.inv(PassMat) @ DiagMat @ PassMat
+# print(A)
+eigval, eigvec = np.linalg.eig(A)
+# assert eigval[0] != eigval[1], 'Only consider different eigenvalue: {}'.format(eigval)
+# print(eigval)
+# print(eigvec)
+
+
+def system_ode(state, t=0):
 	""" Define the ordinary differential equation of the system
 		:param state :	The current state of the system
 		:param t :	The current time instant
 	"""
-	x, y = state[...,0], state[...,1] 
-	xdot = y
-	ydot = mu * (1 - jnp.square(x)) * y - x
-	return jnp.hstack((xdot,ydot))
+	return A @ state
+
+def exact_solution_temp(state_init, time_indexes):
+	""" Provide an explicit solution of the ODE
+		:param state_init : Initial state of the system
+		:param time_indexes : Time indexes at which to evaluate the trajecory
+	"""
+	exp_term = jnp.exp(time_indexes[0] * eigval)
+	m_eigvec = jnp.array(eigvec)
+	coeff_val = jax.numpy.linalg.solve(m_eigvec * exp_term, state_init)
+	@jax.vmap
+	def op(time_val):
+		exp_ = jnp.exp(eigval * time_val)
+		return (m_eigvec * coeff_val) @ exp_
+	return op(time_indexes)
+
+def exact_solution(state_init, time_step, traj_length, n_rollout, merge_traj=True):
+	""" A vectorization of exact_solution_temp to handle multiple inputs
+	"""
+	t_indexes = jnp.array([i * time_step for i in range(traj_length+n_rollout)]).reshape((-1,1))
+	m_trajs = jax.jit(jax.vmap(exact_solution_temp, in_axes=(0,None)))(state_init, t_indexes)
+	xtraj = m_trajs[:, :traj_length, :]
+	# Merge the trajectory if requested
+	if merge_traj:
+		xtraj = xtraj.ravel().reshape((traj_length*state_init.shape[0], state_init.shape[1]))
+	# Generate the rollout data
+	res_rollout = [ [] for r in range(n_rollout)]
+	for i in range(state_init.shape[0]):
+		for j, r in enumerate(res_rollout):
+			r.extend(m_trajs[i, (j+1):(j+1+traj_length),:])
+	return xtraj, res_rollout
 
 
 def numeric_solution(fun_ode, state_init, time_step, traj_length, n_rollout, merge_traj=True):
@@ -80,7 +121,8 @@ def main_fn(path_config_file, extra_args={}, coeff_dur_test=1):
 	m_init_train_x = jax.random.uniform(subkey, (num_traj_data, nstate), minval = jnp.array(xtrain_lb), maxval=jnp.array(xtrain_ub))
 
 	# Generate the training trajectories
-	xTrain, xNextTrain = numeric_solution(system_ode, m_init_train_x, mdata_log.time_step, mdata_log.trajectory_length, mdata_log.n_rollout)
+	# xTrain, xNextTrain = numeric_solution(system_ode, m_init_train_x, mdata_log.time_step, mdata_log.trajectory_length, mdata_log.n_rollout)
+	xTrain, xNextTrain = exact_solution(m_init_train_x, mdata_log.time_step, mdata_log.trajectory_length, mdata_log.n_rollout)
 
 	# Set of initial states testing 
 	m_rng, subkey = jax.random.split(m_rng)
@@ -88,7 +130,8 @@ def main_fn(path_config_file, extra_args={}, coeff_dur_test=1):
 
 	# Generate the testing trajectories
 	test_traj_length = mdata_log.trajectory_length*coeff_dur_test
-	xTest, xNextTest = numeric_solution(system_ode, m_init_test_x, mdata_log.time_step, test_traj_length, mdata_log.n_rollout)
+	# xTest, xNextTest = numeric_solution(system_ode, m_init_test_x, mdata_log.time_step, test_traj_length, mdata_log.n_rollout)
+	xTest, xNextTest = exact_solution(m_init_test_x, mdata_log.time_step, test_traj_length, mdata_log.n_rollout)
 
 	# Set of colocation poits
 	coloc_points = (None, None, None)
@@ -104,7 +147,7 @@ def main_fn(path_config_file, extra_args={}, coeff_dur_test=1):
 	# Do some plotting for illustration
 	import matplotlib.pyplot as plt
 
-	n_traj = num_traj_data
+	n_traj = 10
 	indx_list = [i for i in range(n_traj)]
 	traj_set_list = list()
 	for indx_trajectory in indx_list:
@@ -145,6 +188,7 @@ def main_fn(path_config_file, extra_args={}, coeff_dur_test=1):
 	plt.show()
 
 
+
 if __name__ == "__main__":
 	import time
 	import argparse
@@ -153,10 +197,11 @@ if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--dt', type=float, default=0.01)
 	args = parser.parse_args()
-	traj_duration = 5 # Duration of the trajectory
-	num_trajectory  = [40] # Number of trajectories
+	traj_duration = 20
+	num_trajectory  = [100]
 	num_data_test = 10
-	m_config_aux = {'cfg' : 'dataconfig.yaml', 'output_file' : 'data/vanderpool_dt{}'.format(args.dt), 'n_rollout' : 1, 
-						'seed' : 201, 'time_step' : args.dt, 'trajectory_length' : int(float(traj_duration) / args.dt), 
+	m_config_aux = {'cfg' : 'dataconfig.yaml', 'output_file' : 'data/stifflinear_dt{}'.format(args.dt), 'n_rollout' : 1, 
+						'seed' : 101, 'time_step' : args.dt, 'trajectory_length' : int(float(traj_duration) / args.dt), 
 						'num_data_train' : num_trajectory, 'num_data_test' : num_data_test}
-	main_fn(m_config_aux['cfg'], m_config_aux, coeff_dur_test=1) # coeff_dur_test : The test data is expanded on coeff_dur_test * traj_duration
+	# print(m_config_aux)
+	main_fn(m_config_aux['cfg'], m_config_aux, coeff_dur_test=1)

@@ -1,0 +1,44 @@
+# An example of config file for training/testing data generation
+# This example contains the full set of allowed parameters --> Some of them can be ignored
+
+# The name of the environment to load
+env_name: stiff_dyn
+
+# File used to save the dataset: Without any extension
+output_file: data/datatrain
+
+# The time step of the environment
+time_step: 0.01
+
+# Initial seed used by the random number generator for reproducibility
+seed: 100
+
+# Save the number of rollout
+n_rollout: 1
+
+# The length of each trajectory
+trajectory_length: 40
+
+# The number of trajectories for each set of data
+num_data_train: [20]
+
+# The number of trajectories for the testing dataset validation
+num_data_test: 10
+
+# Colocation set points
+num_data_colocation: 0  # Number of colocation points  
+extra_noise_coloc: 0  # Add more noise to the states /control to different coloc points from another distribution
+
+# Sets from where to sample the initial states and the control to apply for learning
+# Bounds on the control input of the training set
+xtrain_lb: [-0.5, -0.5]
+xtrain_ub: [0.5, 0.5]
+# utrain_lb: -0.3
+# utrain_ub: 0.3
+
+# Bounds on the control input of the testing set --> Should be changed
+# according to the training set for demonstrating generalization
+xtest_lb: [-0.5, -0.5]
+xtest_ub: [0.5, 0.5]
+# utest_lb: -0.4
+# utest_ub: 0.4
