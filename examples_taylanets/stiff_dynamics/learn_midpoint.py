@@ -53,14 +53,17 @@ class Midpoint(hk.Module):
         # Initialize the weight to be randomly close to zero
         # The output size of the neural network must be ns or ns**2 (multiplicative vector or Matrix)
         # And in case, there is a time dependency it should be (ns+1) or (ns+1)**2
-        # self.model = hk.nets.MLP(output_sizes=(32, outsize), 
-        #                 w_init=hk.initializers.RandomUniform(minval=-1e-2, maxval=1e-2), 
-        #                 b_init=jnp.zeros, activation=jax.nn.relu)
-        self.model = hk.Linear(outsize, w_init=hk.initializers.RandomUniform(minval=0, maxval=0), 
+        if args.method == 'hypersolver':
+            self.model = hk.nets.MLP(output_sizes=(32, outsize), 
+                        w_init=hk.initializers.RandomUniform(minval=-10, maxval=10), 
+                        b_init=jnp.zeros, activation=jax.nn.relu)
+        else:
+            self.model = hk.Linear(outsize, w_init=hk.initializers.RandomUniform(minval=0, maxval=0), 
                         b_init=jnp.zeros, name='midpoint')
 
     def __call__(self, x):
-        # return self.model(x)
+        if args.method == 'hypersolver':
+            return self.model(x)
         return self.model(jnp.zeros_like(x))
 
 # Define the loss on the predicted state
@@ -308,7 +311,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # Extrat the directory of the data file and the file name
+    # Extract the directory of the data file and the file name
     trajdir_ = Path(args.trajfile)
     trajdir = str(trajdir_.parent)+'/'
     trajfile = trajdir_.name
@@ -347,8 +350,13 @@ if __name__ == "__main__":
 
     # Add scheduler for learning rate decrease --> Linear decrease given bt learning_rate_init and learning_rate_end
     # m_schedule = optax.piecewise_constant_schedule(-args.lr_init, {meta['num_train_batches']*2500 : 1e-1})
-    m_schedule = optax.linear_schedule(-args.lr_init, -args.lr_end, args.nepochs*meta['num_train_batches'])
+    # m_schedule = optax.linear_schedule(-args.lr_init, -args.lr_end, args.nepochs*meta['num_train_batches'])
     # m_schedule = optax.cosine_decay_schedule(-args.lr_init, args.nepochs*meta['num_train_batches'])
+    assert args.lr_init >= args.lr_end, 'Ending learning rate should be greater than starting learning rate'
+    m_schedule = optax.exponential_decay(-args.lr_init, args.nepochs*meta['num_train_batches'], args.lr_end / args.lr_init)
+    print(float(m_schedule(args.nepochs*meta['num_train_batches'])))
+    # print([float(m_schedule(i)) for i in range(args.nepochs*meta['num_train_batches'])])
+    # exit()
 
     chain_list.append(optax.scale_by_schedule(m_schedule))
 
@@ -390,10 +398,11 @@ if __name__ == "__main__":
 
     # Open the info file to save the command line print
     outfile = open(out_data_file+'_info.txt', 'w')
+    outfile.write('Training parameters: \n{}'.format(m_parameters_dict))
     outfile.write('////// Command line messages \n\n')
     outfile.close()
 
-    # When evaluation the data, we consider a non-shuffle data set
+    # When evaluation the data, we consider a non-shuffle data set so that the evaluation is consistent
     t_train, t_train_next = shuffle_and_split(m_numpy_rng, ds_train_x, ds_train_xnext, meta['num_train_batches'], shuffle=False)
     ds_test_c_, ds_test_c_next_ = shuffle_and_split(m_numpy_rng, ds_train_eval_x, ds_train_eval_xnext, meta['num_test_batches'], shuffle=False)
 
@@ -429,7 +438,7 @@ if __name__ == "__main__":
                 print_str_test = '----------------------------- Eval on Test Data [epoch={} | num_batch = {}] -----------------------------\n'.format(epoch, i)
                 tqdm.write(print_str_test)
 
-                # Compute the loss on the entire training set 
+                # Compute the loss on a subset of the training set --> Full training set might be too much
                 (loss_values_train, pred_time_train, nfe_train, contr_rem_train), _ = \
                         evaluate_loss(pred_params, forward, (iter(t_train),iter(t_train_next)), num_train_batches_eval)
 

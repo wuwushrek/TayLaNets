@@ -5,6 +5,7 @@ from jax.experimental import jet
 from jax.experimental.ode import odeint as jax_odeint
 
 from jax import lax
+import math
 
 def taylor_order_n(vector_field_fn, state : jnp.ndarray, order : int):
     """ Compute higher-order Taylor expansion and return the high-order derivatives
@@ -274,6 +275,7 @@ def hypersolver(dyn_fn, time_step, order=1, n_step=1):
     fn2order = {1 : euler_step, 2 : heun_step, 2.5 : midpoint_step, 3 : bosh_step, 4 : rk4_step}
     m_step_fn = fn2order[order]
     time_indexes = jnp.array([time_step * (i+1) for i in range(n_step)])
+    coeff_rem = time_step**(nfe+1) / math.prod([ i+1 for i in range(nfe+1)])
     # Compute the function for future state prediction
     def pred_next(state, *params_args):
         """ Compute the state value at different time indexes
@@ -287,7 +289,8 @@ def hypersolver(dyn_fn, time_step, order=1, n_step=1):
             # Compute the midpoint and the remainder if dyn_fn contains a function to provide the midpoint
             if len(dyn_fn) == 2:
                 # Compute the residual value
-                residual = time_step**(nfe+1) * dyn_fn[1](state_t, *params_args[1:])
+                # residual = time_step**(nfe+1) * dyn_fn[1](state_t, *params_args[1:])
+                residual = coeff_rem * dyn_fn[1](state_t, *params_args[1:])
                 state_next  = x_next +  residual
                 return state_next, residual
             else:
