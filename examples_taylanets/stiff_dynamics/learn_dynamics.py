@@ -32,9 +32,10 @@ class MLPDynamics(hk.Module):
     def __init__(self):
         super(MLPDynamics, self).__init__()
         outsize = MLPDynamics.nstate
-        self.model = hk.nets.MLP(output_sizes=(64, 64, outsize), 
-                        w_init=hk.initializers.RandomUniform(minval=-1e-2, maxval=1e-2), 
-                        b_init=jnp.zeros, activation= jax.nn.relu)
+        self.model = hk.Sequential([hk.Linear(64), hk.Linear(64), hk.Linear(outsize)])
+        # self.model = hk.nets.MLP(output_sizes=(64, 64, outsize), 
+        #                 w_init=hk.initializers.RandomUniform(minval=-1e-1, maxval=1e-1), 
+        #                 b_init=jnp.zeros, activation= jax.nn.sigmoid)
 
     def __call__(self, x):
         return self.model(x)
@@ -320,7 +321,7 @@ if __name__ == "__main__":
     parser.add_argument('--w_decay', type=float, default=0)
     parser.add_argument('--grad_clip', type=float, default=0)
 
-    parser.add_argument('--mid_freq_update', type=int, default=100)
+    parser.add_argument('--mid_freq_update', type=int, default=-1)
     parser.add_argument('--mid_num_grad_iter', type=int, default=1)
     parser.add_argument('--mid_lr_init', type=float, default=1e-4)
     parser.add_argument('--mid_lr_end', type=float, default=1e-7)
@@ -374,8 +375,10 @@ if __name__ == "__main__":
 
     # Add scheduler for learning rate decrease --> Linear decrease given bt learning_rate_init and learning_rate_end
     # m_schedule = optax.piecewise_constant_schedule(-args.lr_init, {meta['num_train_batches']*2500 : 1e-1})
-    m_schedule = optax.linear_schedule(-args.lr_init, -args.lr_end, args.nepochs*meta['num_train_batches'])
+    # m_schedule = optax.linear_schedule(-args.lr_init, -args.lr_end, args.nepochs*meta['num_train_batches'])
     # m_schedule = optax.cosine_decay_schedule(-args.lr_init, args.nepochs*meta['num_train_batches'])
+    assert args.lr_init >= args.lr_end, 'Ending learning rate should be greater than starting learning rate'
+    m_schedule = optax.exponential_decay(-args.lr_init, args.nepochs*meta['num_train_batches'], args.lr_end / args.lr_init)
 
     chain_list.append(optax.scale_by_schedule(m_schedule))
 
@@ -383,9 +386,12 @@ if __name__ == "__main__":
     if args.grad_clip > 0.0:
         chain_list.append(optax.adaptive_grad_clip(clipping=args.grad_clip))
 
+    # Check if correction is enable--> Only valid for Tayla
+    no_correction = args.mid_freq_update < 0 or args.method != 'tayla'
+
     # Build the optimizer
     opt = optax.chain(*chain_list)
-    opt_state = opt.init(pred_params[0]) # Here we only update the parameters of the dynamics function
+    opt_state = opt.init(pred_params if no_correction else pred_params[0] ) # Here we only update the parameters of the dynamics function
 
     ##################### Build the optimizer for midpoint/residual weights #########################
     # Customize the gradient descent algorithm for the network parameters
@@ -418,12 +424,20 @@ if __name__ == "__main__":
             :param xstate         : A bactch of trajectories of the system
             :param xstatenext     : A bacth of next state value of the system
         """
-        params_dyn = params[0]
-        dyn_loss = lambda dyn_params : forward_loss((dyn_params,*params[1:]), xstate, xstatenext)
+        if not no_correction:
+            params_dyn = params[0]
+            dyn_loss = lambda dyn_params : forward_loss((dyn_params,*params[1:]), xstate, xstatenext)
+        else:
+            params_dyn = params
+            dyn_loss = lambda dyn_params : forward_loss(dyn_params, xstate, xstatenext)
         grads = jax.grad(dyn_loss, has_aux=False)(params_dyn)
         updates, _opt_state = opt.update(grads, _opt_state, params_dyn)
         params_dyn = optax.apply_updates(params_dyn, updates)
-        return (params_dyn, *params[1:]), _opt_state
+        if not no_correction:
+            return (params_dyn, *params[1:]), _opt_state
+        else:
+            return params_dyn, _opt_state
+        # return (params_dyn, *params[1:]), _opt_state
 
     @jax.jit
     def mid_update(params, _opt_state, xstate):
@@ -497,7 +511,7 @@ if __name__ == "__main__":
             update_end = time.time() - update_start
 
             # In case there is an update rule for the midpoint -> Do as following
-            if mid_opt_state is not None and itr_count % args.mid_freq_update == 0:
+            if (not no_correction) and mid_opt_state is not None and itr_count % args.mid_freq_update == 0:
                 update_start = time.time()
                 pred_params, mid_opt_state = mid_update(pred_params, mid_opt_state, xTrain)
                 tree_flatten(mid_opt_state)[0][0].block_until_ready()
