@@ -32,39 +32,13 @@ class MLPDynamics(hk.Module):
     def __init__(self):
         super(MLPDynamics, self).__init__()
         outsize = MLPDynamics.nstate
-        self.model = hk.Sequential([hk.Linear(64), hk.Linear(64), hk.Linear(outsize)])
-        # self.model = hk.nets.MLP(output_sizes=(64, 64, outsize), 
-        #                 w_init=hk.initializers.RandomUniform(minval=-1e-1, maxval=1e-1), 
-        #                 b_init=jnp.zeros, activation= jax.nn.sigmoid)
+        self.model = hk.Sequential([hk.Linear(64), hk.Linear(outsize)])
 
     def __call__(self, x):
         return self.model(x)
 
     # Number of state of the system
     nstate = 2
-
-# # This class represents the midpoint parameterization (for tayla) or the residual (for hypersolver)
-# class Midpoint(hk.Module):
-#     """Compute the coefficients in the formula obtained to simplify the learning of the midpoint
-#     """
-#     def __init__(self):
-#         """ Build a MLP approximating the coefficient in the midpoint formula
-#             :param dim         : Specifies the output dimension of this NN
-#         """
-#         super(Midpoint, self).__init__(name='midpoint_residual')
-#         outsize = MLPDynamics.nstate if args.method == 'hypersolver' else MLPDynamics.nstate
-#         # Initialize the weight to be randomly close to zero
-#         # The output size of the neural network must be ns or ns**2 (multiplicative vector or Matrix)
-#         # And in case, there is a time dependency it should be (ns+1) or (ns+1)**2
-#         # self.model = hk.nets.MLP(output_sizes=(32, outsize), 
-#         #                 w_init=hk.initializers.RandomUniform(minval=-1e-2, maxval=1e-2), 
-#         #                 b_init=jnp.zeros, activation=jax.nn.relu)
-#         self.model = hk.Linear(outsize, w_init=hk.initializers.RandomUniform(minval=0, maxval=0), 
-#                         b_init=jnp.zeros, name='midpoint')
-
-#     def __call__(self, x):
-#         # return self.model(x)
-#         return self.model(jnp.zeros_like(x))
 
 # This class represents the midpoint parameterization (for tayla) or the residual (for hypersolver)
 class Midpoint(hk.Module):
@@ -75,13 +49,13 @@ class Midpoint(hk.Module):
             :param dim         : Specifies the output dimension of this NN
         """
         super(Midpoint, self).__init__(name='midpoint_residual')
-        outsize = MLPDynamics.nstate if args.method == 'hypersolver' else MLPDynamics.nstate**2
+        outsize = MLPDynamics.nstate if args.method == 'hypersolver' else MLPDynamics.nstate
         # Initialize the weight to be randomly close to zero
         # The output size of the neural network must be ns or ns**2 (multiplicative vector or Matrix)
         # And in case, there is a time dependency it should be (ns+1) or (ns+1)**2
-        self.model = hk.nets.MLP(output_sizes=(16, 16, outsize), 
+        self.model = hk.nets.MLP(output_sizes=(16, outsize), 
                         w_init=hk.initializers.RandomUniform(minval=-1e-2, maxval=1e-2), 
-                        b_init=jnp.zeros, activation=jax.nn.gelu)
+                        b_init=jnp.zeros, activation=jax.nn.relu)
 
     def __call__(self, x):
         return self.model(x)
@@ -403,7 +377,8 @@ if __name__ == "__main__":
         chain_list_res.append(optax.add_decayed_weights(decay_weight_res))
 
     # Add scheduler for learning rate decrease --> Linear decrease given bt learning_rate_init and learning_rate_end
-    m_schedule_res = optax.linear_schedule(-args.mid_lr_init, -args.mid_lr_end, int( args.mid_num_grad_iter*((args.nepochs*meta['num_train_batches']) / args.mid_freq_update)))
+    # m_schedule_res = optax.linear_schedule(-args.mid_lr_init, -args.mid_lr_end, int( args.mid_num_grad_iter*((args.nepochs*meta['num_train_batches']) / args.mid_freq_update)) )
+    m_schedule_res = optax.exponential_decay(-args.mid_lr_init, int( args.mid_lr_init*((args.nepochs*meta['num_train_batches']) / args.mid_freq_update)), args.mid_lr_end / args.mid_lr_init)
     # m_schedule_res = optax.linear_schedule(-args.mid_lr_init, -args.mid_lr_end, int( n_iter*meta['num_train_batches']) )
     chain_list_res.append(optax.scale_by_schedule(m_schedule_res))
     # Add gradient clipping if enable
@@ -466,6 +441,7 @@ if __name__ == "__main__":
     ######################## Main training loop ##########################
     # Save the number of iteration
     itr_count = 0
+    itr_count_corr = 0
 
     # Save the optimal loss_value obtained
     opt_params_dict, opt_loss_train, opt_loss_test, opt_rem_test, opt_rem_train, opt_nfe, opt_diff, opt_ode_loss = [None] * 8
@@ -482,6 +458,7 @@ if __name__ == "__main__":
 
     # Open the info file to save the command line print
     outfile = open(out_data_file+'_info.txt', 'w')
+    outfile.write('Training parameters: \n{}'.format(m_parameters_dict))
     outfile.write('////// Command line messages \n\n')
     outfile.close()
 
@@ -512,10 +489,13 @@ if __name__ == "__main__":
 
             # In case there is an update rule for the midpoint -> Do as following
             if (not no_correction) and mid_opt_state is not None and itr_count % args.mid_freq_update == 0:
+                itr_count_corr += 1
                 update_start = time.time()
                 pred_params, mid_opt_state = mid_update(pred_params, mid_opt_state, xTrain)
                 tree_flatten(mid_opt_state)[0][0].block_until_ready()
-                update_end += time.time() - update_start
+                corr_time = time.time() - update_start
+                if itr_count_corr >= 5:
+                    update_end += corr_time
 
             # Total elapsed compute time for update only
             if itr_count >= 5: # Remove the first few steps due to jit compilation

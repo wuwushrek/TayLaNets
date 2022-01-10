@@ -60,3 +60,12 @@ python learn_midpoint.py --train_batch_size 500 --test_batch_size 1000 --lr_init
 python learn_midpoint.py --train_batch_size 400 --test_batch_size 800 --lr_init 1e-1 --lr_end 1e-5 --test_freq 5000 --save_freq 10000 --n_steps 1 --nepochs 15000 --w_decay 0 --grad_clip 0 --method hypersolver --order 1 --atol 1e-8 --rtol 1e-8 --trajfile data/stifflinear_dt0.25.pkl
 
 python learn_midpoint.py --train_batch_size 660 --test_batch_size 660 --lr_init 1e-1 --lr_end 1e-4 --test_freq 5000 --save_freq 10000 --n_steps 1 --nepochs 10000 --w_decay 0 --grad_clip 0 --method hypersolver --order 1 --atol 1e-8 --rtol 1e-8 --trajfile data/stifflinear_dt0.3.pkl
+
+---------------- Learning dynamics -----------
+python learn_dynamics.py --train_batch_size 500 --test_batch_size 250 --lr_init 1e-2 --lr_end 1e-5 --test_freq 1000 --save_freq 20000 --n_steps 1 --nepochs 100 --w_decay 0 --grad_clip 0 --method dopri5 --atol 1e-8 --rtol 1e-8 --trajfile data/stifflinear_dt0.01.pkl
+
+python learn_dynamics.py --train_batch_size 500 --test_batch_size 250 --lr_init 1e-2 --lr_end 1e-4 --test_freq 1000 --save_freq 20000 --n_steps 1 --nepochs 100 --w_decay 0 --grad_clip 0 --method tayla --atol 1e-8 --rtol 1e-8 --trajfile data/stifflinear_dt0.01.pkl --mid_freq_update 10 --pen_remainder 1e-3 --mid_lr_init 1e-4 --mid_lr_end 1e-12
+
+python learn_dynamics.py --train_batch_size 500 --test_batch_size 250 --lr_init 1e-2 --lr_end 1e-5 --test_freq 1000 --save_freq 20000 --n_steps 1 --nepochs 150 --w_decay 0 --grad_clip 0 --method dopri5 --atol 1e-8 --rtol 1e-8 --trajfile data/stifflinear_dt0.01.pkl --mid_freq_update 10 --pen_remainder 1e-3 --mid_lr_init 1e-4 --mid_lr_end 1e-12
+
+python learn_dynamics.py --train_batch_size 500 --test_batch_size 250 --lr_init 1e-2 --lr_end 1e-4 --test_freq 1000 --save_freq 20000 --n_steps 1 --nepochs 100 --w_decay 0 --grad_clip 0 --method tayla --atol 1e-8 --rtol 1e-8 --trajfile data/stifflinear_dt0.01.pkl --mid_freq_update 10 --pen_remainder 1e-2 --mid_lr_init 1e-4 --mid_lr_end 1e-12
