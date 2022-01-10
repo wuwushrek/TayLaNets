@@ -69,3 +69,49 @@ python learn_dynamics.py --train_batch_size 500 --test_batch_size 250 --lr_init 
 python learn_dynamics.py --train_batch_size 500 --test_batch_size 250 --lr_init 1e-2 --lr_end 1e-5 --test_freq 1000 --save_freq 20000 --n_steps 1 --nepochs 150 --w_decay 0 --grad_clip 0 --method dopri5 --atol 1e-8 --rtol 1e-8 --trajfile data/stifflinear_dt0.01.pkl --mid_freq_update 10 --pen_remainder 1e-3 --mid_lr_init 1e-4 --mid_lr_end 1e-12
 
 python learn_dynamics.py --train_batch_size 500 --test_batch_size 250 --lr_init 1e-2 --lr_end 1e-4 --test_freq 1000 --save_freq 20000 --n_steps 1 --nepochs 100 --w_decay 0 --grad_clip 0 --method tayla --atol 1e-8 --rtol 1e-8 --trajfile data/stifflinear_dt0.01.pkl --mid_freq_update 10 --pen_remainder 1e-2 --mid_lr_init 1e-4 --mid_lr_end 1e-12
+
+python learn_dynamics.py --train_batch_size 500 --test_batch_size 250 --lr_init 1e-2 --lr_end 1e-6 --test_freq 1000 --save_freq 20000 --n_steps 1 --nepochs 200 --w_decay 0 --grad_clip 0 --method tayla --atol 1e-8 --rtol 1e-8 --trajfile data/stifflinear_dt0.01.pkl --mid_freq_update 10 --pen_remainder 1e-2 --mid_lr_init 1e-4 --mid_lr_end 1e-12
+
+python learn_dynamics.py --train_batch_size 500 --test_batch_size 250 --lr_init 1e-2 --lr_end 1e-6 --test_freq 1000 --save_freq 20000 --n_steps 1 --nepochs 200 --w_decay 0 --grad_clip 0 --method tayla --atol 1e-8 --rtol 1e-8 --trajfile data/stifflinear_dt0.01.pkl --mid_freq_update 10 --pen_remainder 1e-2 --mid_lr_init 1e-5 --mid_lr_end 1e-12
+
+
++################## Virtual workspace installation ########################################
++  519  git clone https://github.com/wuwushrek/TayLaNets.git
++  520  clear
++  521  git checkout major_updates
++  522  cd TayLaNets/
++  523  clear
++  524  git checkout major_updates 
++  525  clear
++  526  ls
++  527  git status
++  528  clear
++  529  conda create --name ijcai2022 python=3.8
++  530  conda activate ijcai2022
++  531  clear
++  532  conda install numpy matplotlib scipy
++  533  python -m pip install tqdm
++  534  clear
++  535  python -m pip install --upgrade pip
++  536  python -m pip install --upgrade "jax[cpu]"
++  537  clear
++  538  pip install --upgrade "jax[cuda]" -f https://storage.googleapis.com/jax-releases/jax_releases.html
++  539  clear
++  540  ls
++  541  python -m pip install -e .
++  542  clear
++  543  ls
++  544  cd examples_taylanets/
++  545  clear
++  546  ls
++  547  cd stiff_dynamics/
++  548  clear
++  549  ls
++  550  pwd
++  551  cd data/
++  552  pwd
++  553  python learn_dynamics.py --train_batch_size 500 --test_batch_size 250 --lr_init 1e-2 --lr_end 1e-5 --test_freq 1000 --save_freq 20000 --n_steps 1 --nepochs 100 --w_decay 0 --grad_clip 0 --method dopri5 --atol 1e-8 --rtol 1e-8 --trajfile data/stifflinear_dt0.01.pkl
++  554  cd ..
++  555  python learn_dynamics.py --train_batch_size 500 --test_batch_size 250 --lr_init 1e-2 --lr_end 1e-5 --test_freq 1000 --save_freq 20000 --n_steps 1 --nepochs 100 --w_decay 0 --grad_clip 0 --method dopri5 --atol 1e-8 --rtol 1e-8 --trajfile data/stifflinear_dt0.01.pkl
++  556  python -m pip install yaml
++  557  python -m pip install pyyaml
