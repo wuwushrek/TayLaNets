@@ -103,7 +103,7 @@ class Midpoint(hk.Module):
 
     def __call__(self, xt):
         midcoeff = self.model(xt)
-        return jnp.concatenate((midcoeff[...,:-1], jnp.maximum(midcoeff[...,-1:], 1.0)*self.dt) , axis=-1)
+        return jnp.concatenate((midcoeff[...,:-1], jnp.maximum(jnp.minimum(midcoeff[...,-1:], 1.0), 0.) * self.dt) , axis=-1)
 
 
 class PostODE(hk.Module):
@@ -154,6 +154,25 @@ def _rel_error(eststate, truestate):
     """ Compute the relative error between two quantities
     """
     return jnp.sum(jnp.abs(eststate - truestate)) / jnp.sum(jnp.abs(eststate) + jnp.abs(truestate))
+
+
+# Define the loss on the predicted state
+@jax.jit
+def _pred_loss(eststate, nextstate):
+    """ Compute the loss norm between the predicted next state and the next state given by the data 
+        :param eststate  : Predicted state of the NN ode
+        :param nextstate : Next state from the data
+    """
+    return jnp.mean(jnp.sum(jnp.abs(eststate - nextstate), axis=-1))
+
+
+# Define the loss on the remainder term
+@jax.jit
+def _rem_loss(rem_tt):
+    """ Compute the norm of the remainder term (or the residual of the learning)
+        :param rem_tt : The remainder (at midpoint for tayla) or residual (for hypersolver)
+    """
+    return jnp.mean(jnp.sum(jnp.abs(rem_tt), axis=-1))
 
 
 # function assumes ts = [0, 1]
@@ -237,9 +256,9 @@ def init_model(rng, order, n_step, method='tayla', batch_size=1,
         return jnp.concatenate((_images, jnp.zeros_like(_images[...,:1])), axis=-1)
 
     # Define the forward function -> No extra operations on this dynamical system
-    def forward_gen(params, _images, predictor):
+    def forward_gen(params, _images, predictor, nb_params):
         """ Compute the forward function """
-        (dynamics_params, _midpoint_params, _pre_ode_params, _post_ode_params) = params
+        (_dynamics_params, _midpoint_params, _pre_ode_params, _post_ode_params) = params
         # Pre-processing steps
         out_pre_ode = pre_ode_fn(_pre_ode_params, _images)
         # Augment the state with time component
@@ -249,8 +268,24 @@ def init_model(rng, order, n_step, method='tayla', batch_size=1,
         out_post_ode = post_ode_fn(_post_ode_params, out_ode[...,:-1])
         return (out_post_ode, nfe), extra
 
-    forward = jax.jit(lambda params, _images : forward_gen(params, _images, pred_fn))
-    odeint_forward = jax.jit(lambda params, _images : forward_gen(params, _images, odeint_eval))
+    forward = jax.jit(lambda params, _images : forward_gen(params, _images, pred_fn, nb_params))
+    odeint_forward = jax.jit(lambda params, _images : forward_gen(params, _images, odeint_eval, 1))
+
+    def pre_odeint_forward(params, _images):
+        """ Compute the forward function and integrate it"""
+        (_dynamics_params, _pre_ode_params) = params
+        # Pre-processing steps
+        out_pre_ode = pre_ode_fn(_pre_ode_params, _images)
+        out_pre_ode = augment_state(out_pre_ode)
+        # Augment the state with time component
+        (out_ode, nfe), extra = odeint_eval(out_pre_ode, _dynamics_params)
+        return out_pre_ode, out_ode
+
+    def corrector_loss(params, xstate, xnextstate):
+        (_dynamics_params, _midpoint_params) = params
+        (_xnstate, _), _ = pred_fn(xstate, _dynamics_params, _midpoint_params)
+        return _pred_loss(_xnstate, xnextstate)
+
 
     # Define the forward loss
     def forward_loss(params, _images, _labels):
@@ -261,7 +296,7 @@ def init_model(rng, order, n_step, method='tayla', batch_size=1,
             sloss += pen_remainder * _rem_loss(extra)
         return sloss
 
-    return pred_params, forward, forward_loss, odeint_forward, post_ode_init.dtype
+    return pred_params, forward, forward_loss, odeint_forward, post_ode_init.dtype, (pre_odeint_forward, corrector_loss)
 
 
 
@@ -438,7 +473,7 @@ if __name__ == "__main__":
 
     ############### Forward model and Loss functions ##################
     # Compute the function for forward and forward loss and corrections
-    pred_params, forward, forward_loss, odeint_eval, m_dtype = \
+    pred_params, forward, forward_loss, odeint_eval, m_dtype, (pre_odeint_forward, corrector_loss) = \
             init_model(rng, args.order, args.n_steps, args.method, ts = 1.0, 
                         batch_size=args.train_batch_size, pen_remainder= args.pen_remainder, 
                         atol=args.atol, rtol=args.rtol)
@@ -518,29 +553,31 @@ if __name__ == "__main__":
         else:
             return params_dyn, _opt_state
 
-    # @jax.jit
-    # def mid_update(params, _opt_state, xstate):
-    #     """ Update rule for the midpoint parameters
-    #         :param params         : A tuple containing parameters of ODE and midpoint
-    #         :param _opt_state     : The current state of the optimizer
-    #         :param xstate         : A bactch of trajectories of the system
-    #     """
-    #     mid_params = params[1] # Assume params contain the midpoint parameters
-    #     (x_odeint, nfe_), _ = odeint_eval(params[:1], xstate)
-    #     # Define the loss function
-    #     residual_loss = lambda params_mid : forward_loss((params[0],params_mid), xstate, x_odeint)
-    #     # Define the gradient function
-    #     grad_fun = jax.grad(residual_loss, has_aux=False)
-    #     def multi_iter(pcarry, extra):
-    #         """ Perform several gradient step"""
-    #         m_params, m_opt_state = pcarry
-    #         grads = grad_fun(m_params)
-    #         updates, m_opt_state = mid_opt.update(grads, m_opt_state, m_params)
-    #         m_params = optax.apply_updates(m_params, updates)
-    #         return (m_params, m_opt_state), None
-    #     # Perform several gradient steps
-    #     (mid_params, _opt_state), _ = lax.scan(multi_iter, (mid_params, _opt_state), xs=None, length=args.mid_num_grad_iter)
-    #     return (params[0], mid_params), _opt_state
+    @jax.jit
+    def mid_update(params, _opt_state, _images):
+        """ Update rule for the midpoint parameters
+            :param params         : A tuple containing parameters of ODE and midpoint
+            :param _opt_state     : The current state of the optimizer
+            :param xstate         : A bactch of trajectories of the system
+        """
+        mid_params = params[1] # Assume params contain the midpoint parameters
+        pre_xstate, post_xstate = pre_odeint_forward((params[0], params[2]), _images)
+
+        # Define the loss function
+        residual_loss = lambda params_mid : corrector_loss((params[0],params_mid), pre_xstate, post_xstate)
+
+        # Define the gradient function
+        grad_fun = jax.grad(residual_loss, has_aux=False)
+        def multi_iter(pcarry, extra):
+            """ Perform several gradient step"""
+            m_params, m_opt_state = pcarry
+            grads = grad_fun(m_params)
+            updates, m_opt_state = mid_opt.update(grads, m_opt_state, m_params)
+            m_params = optax.apply_updates(m_params, updates)
+            return (m_params, m_opt_state), None
+        # Perform several gradient steps
+        (mid_params, _opt_state), _ = lax.scan(multi_iter, (mid_params, _opt_state), xs=None, length=args.mid_num_grad_iter)
+        return (params[0], mid_params, *params[2:]), _opt_state
 
     ######################## Main training loop ##########################
     # Save the number of iteration
