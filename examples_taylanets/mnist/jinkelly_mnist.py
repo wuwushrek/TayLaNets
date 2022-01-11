@@ -734,6 +734,7 @@ def run():
     predtime_evol_odeint_test = list()
     compute_time_update = list()
     nfe_evol_test = list()
+    err_evol_odeint = list()
 
     m_parameters_dict = vars(parse_args)
     trajdir = parse_args.trajdir
@@ -819,6 +820,8 @@ def run():
                 predtime_evol_train.append(predtime_)
                 predtime_evol_test.append(predtime_test_)
                 predtime_evol_odeint_test.append(odeint_time)
+                
+                err_evol_odeint.append(odeint_relerr)
 
                 nfe_evol_test.append(nfe_test_)
 
@@ -840,7 +843,7 @@ def run():
                                 'accuracy_evol_train' : train_accuracy, 'accuracy_evol_test' : test_accuracy, 'accuracy_evol_odeint' : test_accuracy_odeint,
 
                                 'predtime_evol_train' : predtime_evol_train, 'predtime_evol_test' : predtime_evol_test, 'predtime_evol_odeint_test' : predtime_evol_odeint_test,
-                                'nfe_evol_test' : nfe_evol_test,
+                                'nfe_evol_test' : nfe_evol_test, 'loss_evol_odeint' : loss_evol_odeint_test, 'err_evol_odeint' : err_evol_odeint,
                                 'training_parameters' : m_parameters_dict}
                 outfile = open(out_data_file+'_res.pkl', "wb")
                 pickle.dump(m_dict_res, outfile)
