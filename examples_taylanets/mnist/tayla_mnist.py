@@ -330,10 +330,6 @@ def init_data(train_batch_size, test_batch_size, seed_number=0, shuffle=1000, va
     ds_train = ds_train.repeat()
     ds_train = ds_train.shuffle(shuffle, seed=seed_number)
 
-    # ds_test = ds_test.cache()
-    # ds_test = ds_test.repeat()
-    # ds_test = ds_test.shuffle(shuffle, seed=seed_number)
-
     ds_train, ds_test = ds_train.batch(train_batch_size), ds_test.batch(test_batch_size).repeat()
     ds_train, ds_test = tfds.as_numpy(ds_train), tfds.as_numpy(ds_test)
 
@@ -469,6 +465,7 @@ if __name__ == "__main__":
     train_batch_size = args.train_batch_size
     test_batch_size = args.test_batch_size
 
+    # Some printing
     print('Meta information learning : \n', meta)
     print(vars(args))
 
@@ -497,6 +494,7 @@ if __name__ == "__main__":
     nepochs_sched1 = args.nepochs - args.dur_ending_sched
     m_schedule_start = optax.exponential_decay(-args.lr_init, nepochs_sched1*meta['num_train_batches'], args.lr_end / args.lr_init)
     m_schedule_end = optax.exponential_decay(-args.ending_lr_init, args.dur_ending_sched * meta['num_train_batches'], args.ending_lr_init/args.ending_lr_end)
+    
     # Merge the two schedulers
     m_schedule = optax.join_schedules((m_schedule_start,m_schedule_end), [nepochs_sched1*meta['num_train_batches']])
     # print([float(m_schedule(s)) for s in range(args.nepochs*meta['num_train_batches']) ])

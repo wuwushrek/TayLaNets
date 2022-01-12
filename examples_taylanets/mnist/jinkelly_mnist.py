@@ -490,42 +490,6 @@ def loss_fn(forward, params, images, labels, key):
         return loss_ + lam_fro * fro_reg_ + lam_kin * kin_reg_ + lam_w * weight_
 
 
-# def init_data():
-#     """
-#     Initialize data.
-#     """
-#     (ds_train,), ds_info = tfds.load('mnist',
-#                                      split=['train'],
-#                                      shuffle_files=True,
-#                                      as_supervised=True,
-#                                      with_info=True,
-#                                      read_config=tfds.ReadConfig(shuffle_seed=parse_args.seed))
-
-#     num_train = ds_info.splits['train'].num_examples
-
-#     assert num_train % parse_args.batch_size == 0
-#     num_batches = num_train // parse_args.batch_size
-
-#     test_batch_size = parse_args.test_batch_size
-#     assert num_train % test_batch_size == 0
-#     num_test_batches = num_train // test_batch_size
-
-#     # make sure we always save the model on the last iteration
-#     assert num_batches * parse_args.nepochs % parse_args.save_freq == 0
-
-#     ds_train = ds_train.cache()
-#     ds_train = ds_train.repeat()
-#     ds_train = ds_train.shuffle(1000, seed=seed)
-#     ds_train, ds_train_eval = ds_train.batch(parse_args.batch_size), ds_train.batch(test_batch_size)
-#     ds_train, ds_train_eval = tfds.as_numpy(ds_train), tfds.as_numpy(ds_train_eval)
-
-#     meta = {
-#         "num_batches": num_batches,
-#         "num_test_batches": num_test_batches
-#     }
-
-#     return iter(ds_train), iter(ds_train_eval), meta
-
 # Define a function to compute relative error
 @jax.jit
 def _rel_error(eststate, truestate):
@@ -820,7 +784,7 @@ def run():
                 predtime_evol_train.append(predtime_)
                 predtime_evol_test.append(predtime_test_)
                 predtime_evol_odeint_test.append(odeint_time)
-                
+
                 err_evol_odeint.append(odeint_relerr)
 
                 nfe_evol_test.append(nfe_test_)
@@ -838,12 +802,11 @@ def run():
                                 'opt_nfe_test' : opt_nfe_test, 'opt_diff_test' : opt_relerr_odeint_test,  'opt_loss_odeint_test' : opt_loss_odeint_test,
                                 'opt_predtime_test' : opt_predtime_test, 'opt_predtime_test_odeint' : opt_predtime_test_odeint,
 
-
                                 'loss_evol_train' : loss_evol_train, 'loss_evol_test' : loss_evol_test,
                                 'accuracy_evol_train' : train_accuracy, 'accuracy_evol_test' : test_accuracy, 'accuracy_evol_odeint' : test_accuracy_odeint,
 
                                 'predtime_evol_train' : predtime_evol_train, 'predtime_evol_test' : predtime_evol_test, 'predtime_evol_odeint_test' : predtime_evol_odeint_test,
-                                'nfe_evol_test' : nfe_evol_test, 'loss_evol_odeint' : loss_evol_odeint_test, 'err_evol_odeint' : err_evol_odeint,
+                                'nfe_evol_odeint' : nfe_evol_test, 'loss_evol_odeint' : loss_evol_odeint_test, 'err_evol_odeint' : err_evol_odeint,
                                 'training_parameters' : m_parameters_dict}
                 outfile = open(out_data_file+'_res.pkl', "wb")
                 pickle.dump(m_dict_res, outfile)
