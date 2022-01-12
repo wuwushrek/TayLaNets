@@ -30,14 +30,6 @@ import tensorflow_datasets as tfds
 
 from math import prod
 
-# some primitive functions
-def sigmoid(z):
-    """
-    Numerically stable sigmoid.
-    """
-    return 1/(1 + jnp.exp(-z))
-
-
 def softmax_cross_entropy(logits, labels):
     """
     Cross-entropy loss applied to softmax.
@@ -97,12 +89,13 @@ class Midpoint(hk.Module):
         self.dim = dim # dim **2 when the midpoint is taken as a matrix
         self.dt = dt
         # Initialize the weight to be randomly close to zero
-        self.model = hk.nets.MLP(output_sizes=(16, self.dim), 
-                        w_init=hk.initializers.RandomUniform(minval=-1e-2, maxval=1e-2), 
+        self.model = hk.nets.MLP(output_sizes=(32, self.dim), 
+                        w_init=hk.initializers.RandomUniform(minval=-1e-4, maxval=1e-4), 
                         b_init=jnp.zeros, activation=jax.nn.relu)
 
     def __call__(self, xt):
         midcoeff = self.model(xt)
+        # We constrainys the time component to be between t and t+dt as given by the mean theorem value
         return jnp.concatenate((midcoeff[...,:-1], jnp.maximum(jnp.minimum(midcoeff[...,-1:], 1.0), 0.) * self.dt) , axis=-1)
 
 
@@ -133,6 +126,7 @@ def wrap_module(module, *module_args, **module_kwargs):
         return model(*args, **kwargs)
     return wrap
 
+
 @jax.jit
 def _acc_fn(logits, labels):
     """
@@ -141,12 +135,14 @@ def _acc_fn(logits, labels):
     predicted_class = jnp.argmax(logits, axis=1)
     return jnp.mean(predicted_class == labels)
 
+
 @jax.jit
 def _loss_fn(logits, labels):
     """ 
     Compute the cross entropy loss given the logits and labels
     """
     return jnp.mean(softmax_cross_entropy(logits, labels))
+
 
 # Define a function to compute relative error
 @jax.jit
@@ -172,7 +168,7 @@ def _rem_loss(rem_tt):
     """ Compute the norm of the remainder term (or the residual of the learning)
         :param rem_tt : The remainder (at midpoint for tayla) or residual (for hypersolver)
     """
-    return jnp.mean(jnp.sum(jnp.abs(rem_tt), axis=-1))
+    return jnp.mean(jnp.abs(rem_tt))
 
 
 # function assumes ts = [0, 1]
@@ -219,6 +215,7 @@ def init_model(rng, order, n_step, method='tayla', batch_size=1,
     midpoint = hk.without_apply_rng(hk.transform(wrap_module(Midpoint, midpoint_shape, time_step)))
     midpoint_params = midpoint.init(rng, midpoint_init)
     midpoint_wrap = lambda x, _params : midpoint.apply(_params, x)
+    # print(midpoint_wrap(midpoint_init, midpoint_params))
 
     # Post processing function module
     post_ode = hk.without_apply_rng(hk.transform(wrap_module(PostODE)))
@@ -456,6 +453,10 @@ if __name__ == "__main__":
 
     parser.add_argument('--no_validation_set', action="store_true")
 
+    parser.add_argument('--dur_ending_sched', type=int, default=0)
+    parser.add_argument('--ending_lr_init', type=float, default=1e-4)
+    parser.add_argument('--ending_lr_end', type=float, default=1e-4)
+
     args = parser.parse_args()
 
     # Generate the random key generator -> A workaround for a weird jax + tensorflow core dumped error if it is placed after init_data
@@ -480,7 +481,7 @@ if __name__ == "__main__":
 
     ##################### Build the optimizer for ode weights #########################
     # Customize the gradient descent algorithm
-    chain_list = [optax.scale_by_adam(b1=0.999,b2=0.9999)]
+    chain_list = [optax.scale_by_adam()] # optax.scale_by_adam(b1=0.999,b2=0.9999)
 
     # Add weight decay if enable
     decay_weight = args.w_decay
@@ -491,8 +492,15 @@ if __name__ == "__main__":
     # m_schedule = optax.piecewise_constant_schedule(-args.lr_init, {meta['num_train_batches']*2500 : 1e-1})
     # m_schedule = optax.linear_schedule(-args.lr_init, -args.lr_end, args.nepochs*meta['num_train_batches'])
     # m_schedule = optax.cosine_decay_schedule(-args.lr_init, args.nepochs*meta['num_train_batches'])
-    assert args.lr_init >= args.lr_end, 'Ending learning rate should be greater than starting learning rate'
-    m_schedule = optax.exponential_decay(-args.lr_init, args.nepochs*meta['num_train_batches'], args.lr_end / args.lr_init)
+    assert args.lr_init >= args.lr_end and args.ending_lr_init >= args.ending_lr_end, 'Ending learning rate should be greater than starting learning rate'
+
+    nepochs_sched1 = args.nepochs - args.dur_ending_sched
+    m_schedule_start = optax.exponential_decay(-args.lr_init, nepochs_sched1*meta['num_train_batches'], args.lr_end / args.lr_init)
+    m_schedule_end = optax.exponential_decay(-args.ending_lr_init, args.dur_ending_sched * meta['num_train_batches'], args.ending_lr_init/args.ending_lr_end)
+    # Merge the two schedulers
+    m_schedule = optax.join_schedules((m_schedule_start,m_schedule_end), [nepochs_sched1*meta['num_train_batches']])
+    # print([float(m_schedule(s)) for s in range(args.nepochs*meta['num_train_batches']) ])
+    # exit()
 
     chain_list.append(optax.scale_by_schedule(m_schedule))
 
@@ -505,7 +513,7 @@ if __name__ == "__main__":
 
     # Build the optimizer
     opt = optax.chain(*chain_list)
-    opt_state = opt.init(pred_params if no_correction else pred_params[0] ) # Here we only update the parameters of the dynamics function
+    opt_state = opt.init(pred_params if no_correction else (pred_params[0], pred_params[2],pred_params[3]) ) # We don't update the midpoint when correction enabled
 
     ##################### Build the optimizer for midpoint/residual weights #########################
     # Customize the gradient descent algorithm for the network parameters
@@ -526,7 +534,7 @@ if __name__ == "__main__":
         chain_list_res.append(optax.adaptive_grad_clip(clipping=args.mid_grad_clip))
     # Build the optimizer
     mid_opt = optax.chain(*chain_list_res)
-    mid_opt_state = mid_opt.init(pred_params[1]) if len(pred_params) >= 2 else None # No params in case of noresidual-based solvers
+    mid_opt_state = mid_opt.init(pred_params[1]) if len(pred_params) == 4 else None # No params in case of noresidual-based solvers
 
 
     ######################## Update function ##########################
@@ -540,8 +548,8 @@ if __name__ == "__main__":
             :param xstatenext     : A bacth of next state value of the system
         """
         if not no_correction:
-            params_dyn = params[0]
-            dyn_loss = lambda dyn_params : forward_loss((dyn_params,*params[1:]), _images, _labels)
+            params_dyn = (params[0],params[2],params[3])
+            dyn_loss = lambda dyn_params : forward_loss((dyn_params[0], params[1], *dyn_params[1:]), _images, _labels)
         else:
             params_dyn = params
             dyn_loss = lambda dyn_params : forward_loss(dyn_params, _images, _labels)
@@ -549,7 +557,7 @@ if __name__ == "__main__":
         updates, _opt_state = opt.update(grads, _opt_state, params_dyn)
         params_dyn = optax.apply_updates(params_dyn, updates)
         if not no_correction:
-            return (params_dyn, *params[1:]), _opt_state
+            return (params_dyn[0], params[1], *params_dyn[1:]), _opt_state
         else:
             return params_dyn, _opt_state
 
@@ -627,7 +635,7 @@ if __name__ == "__main__":
             if (not no_correction) and mid_opt_state is not None and itr_count % args.mid_freq_update == 0:
                 itr_count_corr += 1
                 update_start = time.time()
-                pred_params, mid_opt_state = mid_update(pred_params, mid_opt_state, xTrain)
+                pred_params, mid_opt_state = mid_update(pred_params, mid_opt_state, _images)
                 tree_flatten(mid_opt_state)[0][0].block_until_ready()
                 corr_time = time.time() - update_start
                 if itr_count_corr >= 5:
@@ -657,7 +665,7 @@ if __name__ == "__main__":
 
                 # First time we have a value for the loss function
                 if opt_loss_train is None or opt_loss_test is None or (opt_accuracy_test < acc_test):
-                    opt_params_dict, opt_loss_train, opt_loss_test, opt_loss_odeint, opt_rem_train, opt_rem_test, opt_nfe, opt_diff, opt_accuracy_test, opt_accuracy_train,\
+                    opt_params_dict, opt_loss_train, opt_loss_test, opt_loss_odeint, opt_rem_train, opt_rem_test, opt_nfe, opt_diff, opt_accuracy_train, opt_accuracy_test,\
                         opt_accuracy_odeint_test, opt_predtime_test, opt_predtime_test_odeint = \
                         pred_params, loss_values_train, loss_values_test, ode_ltest, contr_rem_train, contr_rem_test, ode_nfe, ode_errdiff,\
                             acc_train, acc_test, acc_test_odeint, pred_time_test, ode_predtime
@@ -672,6 +680,7 @@ if __name__ == "__main__":
                 print_str += '                 Loss ODE   = {:.2e} | NFE ODEINT = {:.3e} | Diff. Pred.  = {:.2e} | Pred. Time = {:.2e} | Pred. Time. ODEINT = {:.2e}\n'.format(opt_loss_odeint, opt_nfe, opt_diff, opt_predtime_test, opt_predtime_test_odeint)
 
                 tqdm.write(print_str)
+                # tqdm.write('{}'.format(pred_params[1]))
 
                 # Save all the obtained data
                 loss_evol_train.append(loss_values_train); loss_evol_test.append(loss_values_test); loss_evol_odeint.append(ode_ltest)
