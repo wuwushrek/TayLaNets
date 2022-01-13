@@ -180,13 +180,14 @@ def tayla(dyn_fn, time_step, order=1, n_step=1):
         """
         def rollout(state_t, time_val):
             # Compute the taylor expansion and the function evaluation at initial state
-            x_tt, f0 = ode_tt(state_t, *params_args[:1])
+            vfield_params = params_args[:-1] if len(dyn_fn) == 2 else params_args
+            x_tt, f0 = ode_tt(state_t, *vfield_params)
             # Compute the midpoint and the remainder if dyn_fn contains a function to provide the midpoint
             if len(dyn_fn) == 2:
                 # Compute the midpoint
-                mid_p = mid_fn(state_t, f0, *params_args[1:])
+                mid_p = mid_fn(state_t, f0, *params_args[-1:])
                 # Compute the reaminder term
-                r_tt = rem_tt(mid_p, *params_args[:1])
+                r_tt = rem_tt(mid_p, *params_args[:-1])
                 state_next  = x_tt + r_tt
                 # return state_next, (state_next, mid_p, r_tt)
                 return state_next, r_tt
@@ -231,8 +232,8 @@ def tayla_predcorr(dyn_fn, time_step, order=1, n_step=1, rtol=1.4e-8, atol=1.4e-
         """
         def rollout(_useless, xs):
             (state_t, ft) = xs
-            mid_p = mid_fn(state_t, ft, *params[1:])
-            r_tt = rem_tt(mid_p, *params[:1])
+            mid_p = mid_fn(state_t, ft, *params[-1:])
+            r_tt = rem_tt(mid_p, *params[:-1])
             return _useless, r_tt
         _, r_tt = jax.lax.scan(rollout, None, (x0, f0))
         return r_tt
@@ -285,12 +286,13 @@ def hypersolver(dyn_fn, time_step, order=1, n_step=1):
         """
         def rollout(state_t, time_val):
             # Compute the next state
-            x_next = m_step_fn(dyn_fn[0], state_t, time_step, *params_args[:1])
+            vfield_params = params_args[:-1] if len(dyn_fn) == 2 else params_args
+            x_next = m_step_fn(dyn_fn[0], state_t, time_step, *vfield_params)
             # Compute the midpoint and the remainder if dyn_fn contains a function to provide the midpoint
             if len(dyn_fn) == 2:
                 # Compute the residual value
                 # residual = time_step**(nfe+1) * dyn_fn[1](state_t, *params_args[1:])
-                residual = coeff_rem * dyn_fn[1](state_t, *params_args[1:])
+                residual = coeff_rem * dyn_fn[1](state_t, *params_args[-1:])
                 state_next  = x_next +  residual
                 return state_next, residual
             else:
