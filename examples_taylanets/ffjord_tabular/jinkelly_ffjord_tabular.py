@@ -687,7 +687,7 @@ def run():
                 (nfe_test_, odeint_loss, odeint_relerr, odeint_time) = evaluate_loss(opt_state, key, ds_test_eval, meta['num_test_batches'])
 
                 # First time we have a value for the loss function
-                if opt_loss_test is None or (opt_loss_test < loss_test_):
+                if opt_loss_test is None or (opt_loss_test > loss_test_):
                     opt_loss_test = loss_test_
                     opt_loss_odeint_test = odeint_loss
 
