@@ -723,7 +723,7 @@ def run():
                 outfile.write(print_str)
                 outfile.close()
 
-            if itr % parse_args.save_freq == 0 or (epoch == parse_args.nepochs-1 and i == meta['num_train_batches']-1):
+            if itr % parse_args.save_freq == 0 or (epoch == parse_args.nepochs-1 and i == num_batches-1):
                 m_dict_res = {'best_params' : opt_params_dict, 'total_update_time' : total_compute_time, 'updatetime_evol' : compute_time_update,
                                 'opt_loss_test' : opt_loss_test, 
                                 'opt_nfe_test' : opt_nfe_test, 'opt_diff_test' : opt_relerr_odeint_test,  'opt_loss_odeint_test' : opt_loss_odeint_test,
