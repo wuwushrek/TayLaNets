@@ -112,7 +112,7 @@ class Midpoint(hk.Module):
         self.dim = dim # dim **2 when the midpoint is taken as a matrix
         self.dt = dt
         # Initialize the weight to be randomly close to zero
-        self.model = hk.nets.MLP(output_sizes=(32, self.dim), 
+        self.model = hk.nets.MLP(output_sizes=(16, self.dim), 
                         w_init=hk.initializers.RandomUniform(minval=-1e-4, maxval=1e-4), 
                         b_init=jnp.zeros, activation=jax.nn.relu)
 
@@ -250,7 +250,7 @@ def init_model(rng, n_dims, order, n_step, method='tayla', batch_size=1,
         # Augment the state with time component and solve the ODE
         m_params = (params[0], eps) if nb_params == 1 else (params[0], eps, *params[1:])
         (out_ode, nfe), extra = predictor(augment_state(x), *m_params)
-        return (out_ode[...,:-2],out_ode[...,:-2:-1], nfe), extra
+        return (out_ode[...,:-2],out_ode[...,-2:-1], nfe), extra
 
     forward = jax.jit(lambda key, params, x : forward_gen(key, params, x, pred_fn, nb_params))
     odeint_forward = jax.jit(lambda key, params, x : forward_gen(key, params, x, odeint_eval, 1))
