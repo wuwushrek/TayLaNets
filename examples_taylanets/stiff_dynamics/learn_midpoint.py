@@ -44,16 +44,17 @@ class MLPDynamics(hk.Module):
 class Midpoint(hk.Module):
     """Compute the coefficients in the formula obtained to simplify the learning of the midpoint
     """
-    def __init__(self):
+    def __init__(self, method):
         """ Build a MLP approximating the coefficient in the midpoint formula
             :param dim         : Specifies the output dimension of this NN
         """
         super(Midpoint, self).__init__(name='midpoint_residual')
-        outsize = MLPDynamics.nstate if args.method == 'hypersolver' else MLPDynamics.nstate
+        self.method = method
+        outsize = MLPDynamics.nstate if self.method == 'hypersolver' else MLPDynamics.nstate
         # Initialize the weight to be randomly close to zero
         # The output size of the neural network must be ns or ns**2 (multiplicative vector or Matrix)
         # And in case, there is a time dependency it should be (ns+1) or (ns+1)**2
-        if args.method == 'hypersolver':
+        if self.method == 'hypersolver':
             self.model = hk.nets.MLP(output_sizes=(32, outsize), 
                         w_init=hk.initializers.RandomUniform(minval=-10, maxval=10), 
                         b_init=jnp.zeros, activation=jax.nn.relu)
@@ -62,7 +63,7 @@ class Midpoint(hk.Module):
                         b_init=jnp.zeros, name='midpoint')
 
     def __call__(self, x):
-        if args.method == 'hypersolver':
+        if self.method == 'hypersolver':
             return self.model(x)
         return self.model(jnp.zeros_like(x))
 
@@ -119,7 +120,7 @@ def init_model(rng, order, n_step, method='tayla', ts = 1.0, batch_size=1,
     dynamics_wrap = lambda x, _params : dynamics.apply(_params, x)
 
     # Build the Midpoint or remainder function module
-    midpoint = hk.without_apply_rng(hk.transform(wrap_module(Midpoint)))
+    midpoint = hk.without_apply_rng(hk.transform(wrap_module(Midpoint, method)))
     midpoint_init = jnp.zeros((batch_size, nstate))
     midpoint_params = midpoint.init(rng, midpoint_init)
     midpoint_wrap = lambda x, _params : midpoint.apply(_params, x)

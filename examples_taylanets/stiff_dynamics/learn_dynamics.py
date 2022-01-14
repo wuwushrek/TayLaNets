@@ -49,7 +49,7 @@ class Midpoint(hk.Module):
             :param dim         : Specifies the output dimension of this NN
         """
         super(Midpoint, self).__init__(name='midpoint_residual')
-        outsize = MLPDynamics.nstate if args.method == 'hypersolver' else MLPDynamics.nstate
+        outsize = MLPDynamics.nstate # if args.method == 'hypersolver' else MLPDynamics.nstate
         # Initialize the weight to be randomly close to zero
         # The output size of the neural network must be ns or ns**2 (multiplicative vector or Matrix)
         # And in case, there is a time dependency it should be (ns+1) or (ns+1)**2
