@@ -8,7 +8,7 @@ Code for the paper:
 \*Equal Contribution
 
 <p align="center">
-<img align="middle" src="main2.svg" width="800" />
+<img align="middle" src="main2.svg" width="1000" />
 <img align="middle" src="main1.svg" width="800" />
 </p>
 
