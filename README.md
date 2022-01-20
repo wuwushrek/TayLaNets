@@ -8,8 +8,8 @@ Code for the paper:
 \*Equal Contribution
 
 <p align="center">
-<img align="middle" src="main2.svg" width="500" />
-<img align="middle" src="main1.svg" width="500" />
+<img align="middle" src="main2.svg" width="800" />
+<img align="middle" src="main1.svg" width="800" />
 </p>
 
 This package provides the following algorithms:
